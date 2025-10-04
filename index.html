@@ -33,7 +33,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 <script>
 (function(){
 
-  // --- New dataset ---
+  // --- Dataset ---
   const nodesData = [
     {CityName: "New York", HouseAnimals: "Dog,Cat"},
     {CityName: "Los Angeles", HouseAnimals: "Dog"},
@@ -47,7 +47,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     {FromCity: "Chicago", ToCity: "New York", Animals: "Cat"}
   ];
 
-  // --- Convert to nodes and links for D3 ---
+  // --- Convert to D3 format ---
   const nodes = nodesData.map(d => ({
     id: d.CityName,
     label: d.CityName,
@@ -61,7 +61,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     Animals: d.Animals
   }));
 
-  // compute degree
+  // compute node degree
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
     const t = nodes.find(n => n.id === l.target);
@@ -69,9 +69,10 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     if(t) t.degree += 1;
   });
 
-  // --- Populate animal filter ---
+  // --- Animal dropdown ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
+  nodes.forEach(n => { n.animals.forEach(a => animalSet.add(a)); });
   const animalDropdown = d3.select('#animalFilter');
   Array.from(animalSet).sort().forEach(a => {
     animalDropdown.append('option').attr('value', a).text(a);
@@ -142,15 +143,23 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
 
-  // --- Animal filter ---
+  // --- Filter logic ---
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
+
     const activeLinks = selectedAnimal 
       ? links.filter(l => l.Animals === selectedAnimal)
       : links;
 
     const connectedNodeIds = new Set();
     activeLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
+
+    // include cities that have the animal in HouseAnimals
+    nodes.forEach(n => {
+      if(selectedAnimal && n.animals.includes(selectedAnimal)) {
+        connectedNodeIds.add(n.id);
+      }
+    });
 
     link.attr('stroke', d => activeLinks.includes(d) ? '#999' : '#ccc')
         .attr('stroke-opacity', d => activeLinks.includes(d) ? 0.8 : 0.1);
