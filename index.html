@@ -557,13 +557,16 @@
         const ty = d.target.y - (dy / dist) * rTarget;
         
         // =======================================================
-        // NEW LOGIC FOR MULTIPLE PARALLEL LINKS
+        // NEW LOGIC FOR MULTIPLE PARALLEL LINKS (CURVATURE INCREASED)
         // =======================================================
         const total = d.parallelTotal;
         const index = d.parallelIndex;
         
         let dr_factor;
         let arcFlag; 
+        
+        // *** CHANGE: Increased curvature from 0.5 to 0.8 ***
+        const curvature = 0.8; 
 
         if (total === 1) {
             // Straight line
@@ -571,27 +574,16 @@
             arcFlag = 0; 
         } else {
             // Calculate an even spacing factor for the arc radius (dr)
-            // (index - (total - 1) / 2) creates indices like:
-            // total=2: [-0.5, 0.5]
-            // total=3: [-1, 0, 1]
-            // total=4: [-1.5, -0.5, 0.5, 1.5]
+            // (index - (total - 1) / 2) creates centered indices like [-1.5, -0.5, 0.5, 1.5] for total=4
             const offset = index - (total - 1) / 2;
-            const curvature = 0.5; // Base curvature magnitude
             
             dr_factor = dist * curvature * offset;
 
-            // Use the sign of the dr_factor to determine the arc flag
-            // This ensures arcs alternate sides around the straight line (index 0)
+            // Use the sign of the dr_factor to determine the arc flag (alternates sides)
             arcFlag = offset > 0 ? 0 : 1; 
-            
-            // Adjust arc flag for reciprocal/different directions if necessary
-            // For true parallel links (like our current A->B B->A), they should alternate sides
-            // Since we assign the index based on the canonical key, this should work.
-            // If the key is A|B, and we're drawing B->A, the path reverses, but the arc should stay consistent.
-            // We use the absolute value of dr_factor for the radius (dr), and the sign of offset for sweep-flag control.
         }
         
-        // Use the absolute value of the dynamic dr_factor for the radius
+        // Use the absolute value of the dynamic dr_factor for the radius (dr)
         const dr = dist + Math.abs(dr_factor); 
         
         // If dr_factor is near zero (straight line), ensure we don't use the arc command
