@@ -36,6 +36,25 @@
         text-shadow: 0 0 3px #ccc, 0 0 3px #ccc, 0 0 3px #ccc; 
     }
     .link { fill:none; cursor:pointer; }
+    
+    /* Styles for the summary table */
+    #summaryTable {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 15px;
+        font-size: 12px;
+    }
+    #summaryTable th, #summaryTable td {
+        padding: 5px;
+        border: 1px solid #ddd;
+        text-align: left;
+    }
+    #summaryTable th {
+        background-color: #e9ecef;
+    }
+    .green-text { color: green; font-weight: bold; }
+    .red-text { color: red; font-weight: bold; }
+
     .link-label text {
         /* NOTE: Font size set dynamically in updateNodeAndLinkStyles() */
         font-weight: bold;
@@ -74,6 +93,9 @@
 
 <div id="layout">
   <div id="controls">
+    <h3>Route Summary</h3>
+    <table id="summaryTable"></table>
+    <hr style="margin: 15px 0; border-top: 1px solid #ccc;">
     <h3>Filter</h3>
     <label for="cityFilter">City:</label>
     <select id="cityFilter">
@@ -129,9 +151,8 @@
     isReciprocal: false
   }));
   
-  // Map to hold route details for reciprocal check and parallel link counting
+  // Map to hold route details for reciprocal check
   const reciprocalRoutes = {};
-  const linkBundles = {}; // Map to track all unique links between a city pair
 
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
@@ -166,24 +187,62 @@
       }
   });
 
-  const uniqueRoutes = {};
+  // =======================================================
+  // NEW LOGIC: Simplify Links for Display and Curvature Grouping
+  // =======================================================
+  const uniqueDisplayLinks = {};
+  const routeAnimalStatus = {}; // To build the summary table
+
   links.forEach(l => {
-      const sortedCities = [l.source, l.target].sort().join('|');
-      // Create a unique key for each path we want to draw (one path per animal, per city pair)
-      const uniquePathKey = sortedCities + '|' + l.Animals;
+      const sortedCities = [l.source, l.target].sort();
+      const canonicalKey = sortedCities.join('|');
       
-      if (!uniqueRoutes[uniquePathKey]) {
-          uniqueRoutes[uniquePathKey] = l;
+      routeAnimalStatus[l.Animals] = l.isReciprocal ? 'Reciprocal' : 'One-way';
+
+      let displayKey;
+      if (l.isReciprocal) {
+          // All reciprocal routes between A and B of ANY animal are one single green link
+          displayKey = canonicalKey + '|reciprocal';
+      } else {
+          // All one-way routes between A and B of ANY animal are one single red link
+          // We must respect directionality for one-way, so the key is From->To
+          displayKey = l.source + '|' + l.target + '|one-way';
+      }
+
+      if (!uniqueDisplayLinks[displayKey]) {
+          uniqueDisplayLinks[displayKey] = {
+              source: sortedCities[0], // Use canonical source/target for reciprocal
+              target: sortedCities[1],
+              isReciprocal: l.isReciprocal,
+              Animals: [l.Animals],
+              routeIds: [l.RouteID],
+              otherRouteIds: l.otherRouteID ? [l.otherRouteID] : [],
+              originalSource: l.source,
+              originalTarget: l.target
+          };
+          if (!l.isReciprocal) {
+              // For one-way, ensure the displayed link follows the actual direction
+              uniqueDisplayLinks[displayKey].source = l.source;
+              uniqueDisplayLinks[displayKey].target = l.target;
+          }
+      } else {
+          // Aggregate animal types and route IDs
+          if (!uniqueDisplayLinks[displayKey].Animals.includes(l.Animals)) {
+              uniqueDisplayLinks[displayKey].Animals.push(l.Animals);
+          }
+          if (!uniqueDisplayLinks[displayKey].routeIds.includes(l.RouteID)) {
+             uniqueDisplayLinks[displayKey].routeIds.push(l.RouteID);
+          }
       }
   });
 
-  // This is the final list of paths to be drawn, one for each unique route/animal combination
-  const labeledLinks = Object.values(uniqueRoutes);
+  const labeledLinks = Object.values(uniqueDisplayLinks);
 
   // Group paths by city pair for curvature indexing
   const pathGroups = {};
   labeledLinks.forEach(l => {
-      const sortedCities = [l.source.id, l.target.id].sort().join('|');
+      // Grouping needs to ignore animal type, but respect canonical direction (sorted cities)
+      const sortedCities = [l.source.id || l.source, l.target.id || l.target].sort().join('|');
       if (!pathGroups[sortedCities]) {
           pathGroups[sortedCities] = [];
       }
@@ -197,6 +256,23 @@
           link.pathIndex = index;
           link.pathTotal = total;
       });
+  });
+
+  // --- Summary Table Generation ---
+  const summaryTable = d3.select('#summaryTable');
+  summaryTable.append('thead').append('tr')
+    .call(tr => tr.append('th').text('Animal'))
+    .call(tr => tr.append('th').text('Route Type'));
+
+  const sortedAnimals = Object.keys(routeAnimalStatus).sort();
+  const summaryBody = summaryTable.append('tbody');
+  
+  sortedAnimals.forEach(animal => {
+      const status = routeAnimalStatus[animal];
+      const statusClass = status === 'Reciprocal' ? 'green-text' : 'red-text';
+      summaryBody.append('tr')
+          .call(tr => tr.append('td').text(animal))
+          .call(tr => tr.append('td').attr('class', statusClass).text(status));
   });
 
   // --- Dropdown Population (Omitted for brevity) ---
@@ -276,6 +352,7 @@
   
   const originalCollisionRadius = 5;
 
+  // Use the full original links array for force simulation for stability
   const simulation = d3.forceSimulation(nodes)
       .force('link', d3.forceLink(links).id(d => d.id).distance(linkDistanceAbstract).strength(0.05))
       .alpha(0.1).alphaTarget(0);
@@ -391,7 +468,7 @@
   const link = g.append('g').attr('class', 'links')
     .selectAll('path').data(labeledLinks).join('path').attr('class', 'link')
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
-    // Use both markers for reciprocal, only end marker for one-way
+    // Set markers based on the aggregated link type
     .attr('marker-start', d => d.isReciprocal ? 'url(#arrowhead-green-start)' : null)
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green-end)' : 'url(#arrowhead-red-end)');
 
@@ -399,9 +476,9 @@
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // Link label only shows Animal type
+  // Link label shows ALL aggregated Animal types
   linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
-      .text(d => d.Animals); 
+      .text(d => d.Animals.join(', ')); 
 
   // --- Node Group (Omitted for brevity) ---
   const node = g.append('g').attr('class', 'nodes')
@@ -434,7 +511,7 @@
   node.append('circle').attr('fill', '#3b82f6');
   node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
-  // --- Zoom Logic (Omitted for brevity) ---
+  // --- Zoom Logic and Tooltip (Omitted for brevity) ---
   const zoom = d3.zoom()
       .scaleExtent([0.5, 8]) 
       .on('zoom', (event) => {
@@ -451,7 +528,6 @@
   const tooltip = d3.select('#tooltip');
   let currentTooltipLock = null; 
 
-  // --- Tooltip Logic (Omitted for brevity) ---
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
@@ -469,18 +545,13 @@
         const sourceLabel = d.source.label || d.source.id;
         const targetLabel = d.target.label || d.target.id;
         
-        let status;
-        if (d.isReciprocal) {
-             const idA = d.RouteID;
-             const idB = d.otherRouteID;
-             status = `(Reciprocal Route: IDs ${idA} & ${idB})`;
-        } else {
-             status = `(One-Way Route: ID ${d.RouteID})`;
-        }
-
-        htmlContent = `<strong>Route Details</strong><br/>
+        let status = d.isReciprocal ? 'Reciprocal (Two-way)' : 'One-Way';
+        let routeInfo = `Route IDs: ${d.routeIds.join(', ')}`;
+        
+        htmlContent = `<strong>Aggregated Route (${status})</strong><br/>
                        ${sourceLabel} ${d.isReciprocal ? '↔' : '→'} ${targetLabel}<br/>
-                       Animals: ${d.Animals} ${status}`;
+                       Animals: ${d.Animals.join(', ')}<br/>
+                       ${routeInfo}`;
     }
     tooltip.style('display', 'block').html(htmlContent);
   }
@@ -546,58 +617,68 @@
     node.attr('transform', d => `translate(${d.x},${d.y})`);
 
     link.attr('d', d => {
-        const dx = d.target.x - d.source.x;
-        const dy = d.target.y - d.source.y;
+        // Use the proper source/target objects from the nodes array
+        const sourceNode = nodes.find(n => n.id === (d.source.id || d.source));
+        const targetNode = nodes.find(n => n.id === (d.target.id || d.target));
+
+        if (!sourceNode || !targetNode) return null; // Safety check
+
+        const dx = targetNode.x - sourceNode.x;
+        const dy = targetNode.y - sourceNode.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist === 0) return null;
         
         // Get dynamic radius for link offsetting
-        const rSource = d3.select(node.filter(n => n.id === d.source.id).node()).select('circle').attr('r') || mapBaseRadius;
-        const rTarget = d3.select(node.filter(n => n.id === d.target.id).node()).select('circle').attr('r') || mapBaseRadius;
+        const rSource = d3.select(node.filter(n => n.id === sourceNode.id).node()).select('circle').attr('r') || mapBaseRadius;
+        const rTarget = d3.select(node.filter(n => n.id === targetNode.id).node()).select('circle').attr('r') || mapBaseRadius;
         
-        // Calculate adjusted start/end points (A -> B) along the direct line
-        // NOTE: No perpendicular offset is applied here, keeping links centered.
-        const sx = d.source.x + (dx / dist) * rSource;
-        const sy = d.source.y + (dy / dist) * rSource;
-        const tx = d.target.x - (dx / dist) * rTarget;
-        const ty = d.target.y - (dy / dist) * rTarget;
+        // Calculate adjusted start/end points along the direct line
+        const sx = sourceNode.x + (dx / dist) * rSource;
+        const sy = sourceNode.y + (dy / dist) * rSource;
+        const tx = targetNode.x - (dx / dist) * rTarget;
+        const ty = targetNode.y - (dy / dist) * rTarget;
         
         const adjustedDist = dist - rSource - rTarget;
 
-        // 1. Arc Curvature Calculation (solely for separation)
-        const pathTotal = d.pathTotal || 1;
-        const pathIndex = d.pathIndex || 0;
-        
-        let dr_factor;
-        let arcFlag; 
-        
-        // Increased curvature magnitude for better separation, especially with more paths
-        const curvature = 1.2; 
-
-        if (pathTotal === 1) {
-            // Straight line
-            dr_factor = 0; 
-            arcFlag = 0; 
-        } else {
-            // Calculate a centered offset based on the path's index
-            // e.g., total=4 -> [-1.5, -0.5, 0.5, 1.5]
-            const arcOffset = pathIndex - (pathTotal - 1) / 2;
-            
-            dr_factor = adjustedDist * curvature * arcOffset;
-
-            // Use the sign of the dr_factor to determine the arc flag (alternates sides)
-            arcFlag = arcOffset > 0 ? 0 : 1; 
-        }
-        
-        // Use the absolute value of the dynamic dr_factor for the radius (dr)
-        const dr = adjustedDist + Math.abs(dr_factor); 
-        
-        // If dr_factor is near zero (straight line), ensure we don't use the arc command
-        if (Math.abs(dr_factor) < 1) {
+        if (d.isReciprocal) {
+            // **RECIPROCAL: STRAIGHT LINE**
              d.pathString = `M${sx},${sy}L${tx},${ty}`;
         } else {
-             // Sweep flag (arcFlag) determined by the sign of the offset
-             d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
+            // **ONE-WAY: CURVED LINE**
+            const pathTotal = d.pathTotal || 1;
+            const pathIndex = d.pathIndex || 0;
+            
+            let dr_factor;
+            let arcFlag; 
+            
+            // Increased curvature magnitude for better separation
+            // Only non-reciprocal links will have an arc. Reciprocal stay straight.
+            const curvature = 1.2; 
+
+            if (pathTotal === 1) {
+                // If only one path (reciprocal or one-way) between the nodes, use a minimal curve for one-way
+                dr_factor = adjustedDist * curvature * 0.1; // Small fixed curve
+                arcFlag = 0; 
+            } else {
+                // Calculate a centered offset based on the path's index
+                // Note: Only the non-reciprocal links get an index, forcing the straight line in the middle
+                const arcOffset = pathIndex - (pathTotal - 1) / 2;
+                
+                dr_factor = adjustedDist * curvature * arcOffset;
+
+                // Use the sign of the dr_factor to determine the arc flag (alternates sides)
+                arcFlag = arcOffset > 0 ? 0 : 1; 
+            }
+            
+            // Use the absolute value of the dynamic dr_factor for the radius (dr)
+            const dr = adjustedDist + Math.abs(dr_factor); 
+            
+            // Generate the curved path
+            if (Math.abs(dr_factor) < 1) {
+                 d.pathString = `M${sx},${sy}L${tx},${ty}`;
+            } else {
+                 d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
+            }
         }
 
         return d.pathString;
@@ -605,12 +686,16 @@
     
     // Update link label position
     linkLabel.attr('transform', d => {
-        // Find the corresponding path element 
-        const path = link.filter(p => p.source.id === d.source.id && p.target.id === d.target.id && p.Animals === d.Animals).node();
+        const sourceNode = nodes.find(n => n.id === (d.source.id || d.source));
+        const targetNode = nodes.find(n => n.id === (d.target.id || d.target));
         
-        if (!path) return `translate(0, 0)`;
-        const totalLength = path.getTotalLength();
-        const point = path.getPointAtLength(totalLength / 2);
+        // Use the path string stored on the data object
+        const tempPath = d3.select(document.createElementNS(d3.namespaces.svg, 'path')).attr('d', d.pathString);
+        
+        if (!tempPath.node()) return `translate(0, 0)`;
+
+        const totalLength = tempPath.node().getTotalLength();
+        const point = tempPath.node().getPointAtLength(totalLength / 2);
         
         // Label position is simply at the midpoint of the path
         return `translate(${point.x}, ${point.y})`; 
@@ -628,9 +713,9 @@
     let activeLinks = labeledLinks;
     let connectedNodeIds = new Set();
     
-    // 1. Filter by Animal
+    // 1. Filter by Animal: Link must contain the selected animal in its aggregated list
     if (selectedAnimal !== 'all') {
-        activeLinks = activeLinks.filter(l => l.Animals === selectedAnimal);
+        activeLinks = activeLinks.filter(l => l.Animals.includes(selectedAnimal));
     }
 
     // 2. Filter by Reciprocal Status
@@ -642,14 +727,14 @@
     // 3. Filter by City
     if (selectedCity !== 'all') {
         activeLinks = activeLinks.filter(l => 
-            (l.source.id === selectedCity || l.target.id === selectedCity)
+            (l.source === selectedCity || l.target === selectedCity)
         );
     } 
     
     // 4. Determine Active Nodes
     activeLinks.forEach(l => {
-        connectedNodeIds.add(l.source.id);
-        connectedNodeIds.add(l.target.id);
+        connectedNodeIds.add(l.source.id || l.source);
+        connectedNodeIds.add(l.target.id || l.target);
     });
 
     // If no links are active, check if any nodes are active based on the city/animal filters alone
@@ -708,6 +793,7 @@
   // Initial run
   updateNodeAndLinkStyles(); 
   simulation.alpha(1).restart(); 
+  updateVisualization(); // Ensure initial filtering/visibility is correct
 
 })();
 </script>
