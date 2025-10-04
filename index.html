@@ -237,15 +237,16 @@
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
 
-  // CHANGE 1: Strong global repulsion to prevent nodes from collapsing and overlapping
-  const originalChargeStrength = -500; 
-  // CHANGE 2: Moderate Link Attraction (Spring force) to establish link distances
+  // CHANGE 1: Weaker global repulsion to allow the center force (cohesion) to dominate more
+  const originalChargeStrength = -350; 
+  // Link Attraction (Spring force) remains moderate
   const originalLinkStrength = 0.4; 
   
   const originalCollisionRadius = 5;
 
   const simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.05))
+      // CHANGE 2: Decreased link distance to encourage a tighter initial packing
+      .force('link', d3.forceLink(links).id(d => d.id).distance(150).strength(0.05))
       .alpha(0.1).alphaTarget(0);
       
   simulation
@@ -312,8 +313,8 @@
       simulation
           .force('link').strength(originalLinkStrength);
       simulation
-          .force('charge', d3.forceManyBody().strength(originalChargeStrength)) // Node Repulsion (prevents collapse/explosion)
-          .force('center', d3.forceCenter(width/2, height/2)) // Node Attraction (cohesion)
+          .force('charge', d3.forceManyBody().strength(originalChargeStrength)) // Node Repulsion (weaker)
+          .force('center', d3.forceCenter(width/2, height/2)) // Node Attraction (now relatively stronger)
           .force('collision', d3.forceCollide().radius(d => rScaleAbstract(d.degree) + originalCollisionRadius));
       
       updateNodeAndLinkStyles(); 
