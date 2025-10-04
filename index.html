@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Train Network Graph with City Filter and Link-Based Node Size</title>
+  <title>Train Network Graph with Animal Filter and Link-Based Node Size</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
@@ -46,20 +46,20 @@
 </head>
 <body>
 
-    <div id="layout">
-        <!-- Sidebar with filter -->
-        <div id="controls">
-          <h3>Filter</h3>
-          <label for="cityFilter">City:</label>
-          <select id="cityFilter">
-            <option value="">All cities</option>
-          </select>
-        </div>
-    
-        <!-- Chart container -->
-        <div id="chart"></div>
-      </div>
-<div id="chart"></div>
+<div id="layout">
+  <!-- Sidebar with filter -->
+  <div id="controls">
+    <h3>Filter</h3>
+    <label for="animalFilter">Animal:</label>
+    <select id="animalFilter">
+      <option value="">All animals</option>
+    </select>
+  </div>
+
+  <!-- Chart container -->
+  <div id="chart"></div>
+</div>
+
 <div class="tooltip" id="tooltip"></div>
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -83,7 +83,8 @@
     source: d.FromCity,
     target: d.ToCity,
     weight: +(d.PassengersPerDay || 1),
-    distance: +(d.DistanceKm || 0)
+    distance: +(d.DistanceKm || 0),
+    Animals: d.Animals || ''
   }));
 
   // Calculate degree (number of connections) for each node
@@ -95,12 +96,17 @@
     if (t) t.degree += 1;
   });
 
-  // Populate city filter dropdown
-  const cityDropdown = d3.select('#cityFilter');
-  nodes.forEach(d => {
-    cityDropdown.append('option')
-      .attr('value', d.id)
-      .text(d.label);
+  // Populate animal filter dropdown
+  const animalSet = new Set();
+  links.forEach(l => {
+    if(l.Animals){
+      l.Animals.split(',').forEach(a => animalSet.add(a.trim()));
+    }
+  });
+
+  const animalDropdown = d3.select('#animalFilter');
+  Array.from(animalSet).sort().forEach(a => {
+    animalDropdown.append('option').attr('value', a).text(a);
   });
 
   // Create SVG
@@ -168,19 +174,34 @@
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Filter function
-  cityDropdown.on('change', function() {
-    const selectedCity = this.value;
+  // Filter function based on selected animal
+  animalDropdown.on('change', function() {
+    const selectedAnimal = this.value;
 
-    const filteredNodes = selectedCity ? nodes.filter(n => n.id === selectedCity) : nodes;
-    const filteredLinks = selectedCity ? links.filter(l => l.source === selectedCity || l.target === selectedCity) : links;
+    let filteredLinks;
+    if(selectedAnimal){
+      filteredLinks = links.filter(l => l.Animals && l.Animals.split(',').map(a=>a.trim()).includes(selectedAnimal));
+    } else {
+      filteredLinks = links;
+    }
+
+    const connectedNodeIds = new Set();
+    filteredLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
+    const filteredNodes = nodes.filter(n => connectedNodeIds.has(n.id));
 
     simulation.nodes(filteredNodes);
     simulation.force('link').links(filteredLinks);
     simulation.alpha(0.5).restart();
 
-    link = svg.select('g.links').selectAll('line').data(filteredLinks, d => d.source + '-' + d.target).join('line').attr('class','link').attr('stroke-width', d => linkWidth(d.weight));
-    node = svg.select('g.nodes').selectAll('g').data(filteredNodes, d => d.id).join('g')
+    link = svg.select('g.links').selectAll('line')
+      .data(filteredLinks, d => d.source + '-' + d.target)
+      .join('line')
+      .attr('class','link')
+      .attr('stroke-width', d => linkWidth(d.weight));
+
+    node = svg.select('g.nodes').selectAll('g')
+      .data(filteredNodes, d => d.id)
+      .join('g')
       .call(d3.drag()
         .on('start', (event,d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
         .on('drag', (event,d) => { d.fx = event.x; d.fy = event.y; })
