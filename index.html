@@ -45,7 +45,8 @@
     id: d.CityID,
     label: d.CityName || d.CityID,
     lat: +(d.Latitude || 0),
-    lon: +(d.Longitude || 0)
+    lon: +(d.Longitude || 0),
+    visible: true
   }));
 
   const links = linksRaw.map(d => ({
@@ -56,15 +57,6 @@
     Animals: d.Animals || ''
   }));
 
-  // Degree calculation
-  nodes.forEach(n => n.degree = 0);
-  links.forEach(l => {
-    const s = nodes.find(n => n.id === l.source);
-    const t = nodes.find(n => n.id === l.target);
-    if (s) s.degree += 1;
-    if (t) t.degree += 1;
-  });
-
   // Populate animal dropdown
   const animalSet = new Set();
   links.forEach(l => {
@@ -72,7 +64,6 @@
       l.Animals.split(',').forEach(a => animalSet.add(a.trim()));
     }
   });
-
   const animalDropdown = d3.select('#animalFilter');
   Array.from(animalSet).sort().forEach(a => {
     animalDropdown.append('option').attr('value', a).text(a);
@@ -84,8 +75,8 @@
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  const degreeExtent = d3.extent(nodes, d => d.degree);
-  const rScale = d3.scaleSqrt().domain(degreeExtent).range([6, 24]);
+  const degreeExtent = d3.extent(nodes, d => d.degree || 0);
+  const rScale = d3.scaleSqrt().domain([0,10]).range([6, 24]); // node radius
 
   const weightExtent = d3.extent(links, d => d.weight);
   const linkWidth = d3.scaleLinear().domain(weightExtent).range([1,6]);
@@ -97,15 +88,17 @@
     .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.distance ? distScale(d.distance) : 120).strength(0.8))
     .force('charge', d3.forceManyBody().strength(-250))
     .force('center', d3.forceCenter(width/2, height/2))
-    .force('collision', d3.forceCollide().radius(d => rScale(d.degree)+4));
+    .force('collision', d3.forceCollide().radius(d => rScale(d.degree || 1)+4));
 
   let link = svg.append('g').attr('class','links').selectAll('line')
-    .data(links).join('line')
+    .data(links)
+    .join('line')
     .attr('class','link')
     .attr('stroke-width', d => linkWidth(d.weight));
 
   let node = svg.append('g').attr('class','nodes').selectAll('g')
-    .data(nodes).join('g')
+    .data(nodes)
+    .join('g')
     .call(d3.drag()
       .on('start', (event,d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
       .on('drag', (event,d) => { d.fx=event.x; d.fy=event.y; })
@@ -113,24 +106,23 @@
     );
 
   node.append('circle')
-    .attr('r', d => rScale(d.degree))
+    .attr('r', d => rScale(d.degree || 1))
     .attr('class','node')
     .attr('fill', '#3b82f6');
 
   node.append('text')
     .text(d => d.label)
-    .attr('x', d => rScale(d.degree)+4)
+    .attr('x', d => rScale(d.degree || 1)+4)
     .attr('y', 4)
     .style('font-size','12px');
 
   const tooltip = d3.select('#tooltip');
-
   function showTooltipLink(event,d){
     tooltip.style('display','block').html(`<strong>${d.source.label} → ${d.target.label}</strong><br/>Animals: ${d.Animals}`);
     d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',2);
   }
   function showTooltipNode(event,d){
-    tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}`);
+    tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree || 0}`);
     d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);
   }
   function moveTooltip(event){ tooltip.style('left',(event.pageX+12)+'px').style('top',(event.pageY+12)+'px'); }
@@ -142,10 +134,11 @@
   simulation.on('tick', () => {
     link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Animal filter: show only routes containing the selected animal
+  // Animal filter: hide only nodes not connected to filtered links
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
 
@@ -156,46 +149,16 @@
       filteredLinks = links;
     }
 
-    // Only show nodes connected by filtered links
     const connectedNodeIds = new Set();
     filteredLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
-    const filteredNodes = nodes.filter(n => connectedNodeIds.has(n.id));
 
-    simulation.nodes(filteredNodes);
-    simulation.force('link').links(filteredLinks);
-    simulation.alpha(0.5).restart();
+    // Update link visibility
+    link.style('display', d => filteredLinks.includes(d) ? 'block' : 'none');
 
-    link = svg.select('g.links').selectAll('line')
-      .data(filteredLinks, d => d.source.id+'-'+d.target.id)
-      .join('line')
-      .attr('class','link')
-      .attr('stroke-width', d => linkWidth(d.weight))
-      .on('mouseover', showTooltipLink)
-      .on('mousemove', moveTooltip)
-      .on('mouseout', hideTooltip);
+    // Update node visibility
+    node.style('display', d => connectedNodeIds.has(d.id) ? 'block' : 'none');
 
-    node = svg.select('g.nodes').selectAll('g')
-      .data(filteredNodes, d => d.id)
-      .join('g')
-      .call(d3.drag()
-        .on('start', (event,d) => { if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
-        .on('drag', (event,d) => { d.fx=event.x; d.fy=event.y; })
-        .on('end', (event,d) => { if(!event.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
-      );
-
-    node.append('circle')
-      .attr('r', d => rScale(d.degree))
-      .attr('class','node')
-      .attr('fill', '#3b82f6')
-      .on('mouseover', showTooltipNode)
-      .on('mousemove', moveTooltip)
-      .on('mouseout', hideTooltip);
-
-    node.append('text')
-      .text(d => d.label)
-      .attr('x', d => rScale(d.degree)+4)
-      .attr('y', 4)
-      .style('font-size','12px');
+    simulation.alpha(0.3).restart();
   });
 
   // Responsive
