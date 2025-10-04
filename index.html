@@ -131,7 +131,8 @@
   
   // Map to hold route details for reciprocal check and parallel link counting
   const reciprocalRoutes = {};
-  const linkGroups = {}; // New map to track parallel links for curvature
+  const linkGroups = {}; // Map to track all parallel links for arc curvature
+  const linkBundles = {}; // NEW: Map to track parallel animal bundles for path offset
 
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
@@ -147,24 +148,55 @@
     }
     reciprocalRoutes[reciprocalKey].push(l);
     
-    // Key for all parallel links (sorted cities only)
+    // Key for all parallel links (sorted cities only) - for arc separation
     const parallelKey = [l.source, l.target].sort().join('|');
     if (!linkGroups[parallelKey]) {
         linkGroups[parallelKey] = [];
     }
-    // Store link and its original direction for path drawing
     linkGroups[parallelKey].push({ link: l, direction: l.source < l.target ? 1 : -1 }); 
+    
+    // NEW: Key for animal bundles (sorted cities + animal) - for lateral path offset
+    const animalKey = [l.source, l.target].sort().join('|') + '|' + l.Animals;
+    if (!linkBundles[animalKey]) {
+        linkBundles[animalKey] = [];
+    }
+    // We only need one entry per Animal type per city pair for the bundle offset
+    if (!linkBundles[animalKey].some(item => item.Animals === l.Animals)) {
+        linkBundles[animalKey].push({ Animals: l.Animals, link: l });
+    }
   });
   
-  // Assign index and total to each link within its parallel group
+  // Assign index and total to each link within its parallel group (for arc separation)
   Object.values(linkGroups).forEach(group => {
       const total = group.length;
       group.forEach((item, index) => {
           item.link.parallelIndex = index;
           item.link.parallelTotal = total;
-          item.link.parallelKey = group[0].link.source < group[0].link.target ? group[0].link.source + '|' + group[0].link.target : group[0].link.target + '|' + group[0].link.source;
       });
   });
+
+  // NEW: Assign bundle index and total to each animal bundle (for lateral offset)
+  const bundleMap = {};
+  Object.keys(linkBundles).forEach(key => {
+      const canonicalCityPair = key.split('|').slice(0, 2).join('|');
+      if (!bundleMap[canonicalCityPair]) {
+          bundleMap[canonicalCityPair] = [];
+      }
+      bundleMap[canonicalCityPair].push(linkBundles[key][0].link);
+  });
+  
+  Object.values(bundleMap).forEach(bundleGroup => {
+      const total = bundleGroup.length;
+      bundleGroup.forEach((link, index) => {
+          // This assigns the bundle position to every link of that animal type
+          links.filter(l => l.Animals === link.Animals && l.source.id === link.source.id && l.target.id === link.target.id || l.source.id === link.target.id && l.target.id === link.source.id)
+               .forEach(l => {
+                   l.bundleIndex = index;
+                   l.bundleTotal = total;
+               });
+      });
+  });
+
 
   // Second pass to identify and update reciprocal links
   links.forEach(link => {
@@ -175,12 +207,10 @@
           // If there are exactly two links (A->B and B->A) with the same animal, they are reciprocal
           routes.forEach(r => r.isReciprocal = true);
           
-          // Store both IDs on the canonical link (the one that comes first alphabetically)
           const [routeA, routeB] = routes;
           if (routeA === link) {
              link.otherRouteID = routeB.RouteID;
           } else if (routeB === link) {
-             // If this is the second link, copy the other ID
              link.otherRouteID = routeA.RouteID;
           }
       }
@@ -253,7 +283,7 @@
   }
   setGeographicalPositions(); 
 
-  // --- Force Simulation Configuration ---
+  // --- Force Simulation Configuration (Omitted for brevity) ---
   const rScaleAbstract = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
   
   const mapBaseRadius = 4;
@@ -284,7 +314,7 @@
 
   let isMapMode = true;
 
-  // Function to dynamically update visual styles based on mode and zoom
+  // Function to dynamically update visual styles based on mode and zoom (Omitted for brevity)
   function updateNodeAndLinkStyles() {
       const transform = d3.zoomTransform(svg.node());
       
@@ -326,7 +356,7 @@
   }
 
 
-  // --- Layout Toggle Logic ---
+  // --- Layout Toggle Logic (Omitted for brevity) ---
   function setAbstractLayout() {
       isMapMode = false;
       d3.select('#mapToggle').text('Toggle Map (OFF)').attr('class', '');
@@ -341,8 +371,8 @@
       simulation
           .force('link').strength(originalLinkStrength).distance(linkDistanceAbstract);
       simulation
-          .force('charge', d3.forceManyBody().strength(originalChargeStrength)) // Node Repulsion (weaker)
-          .force('center', d3.forceCenter(width/2, height/2)) // Node Attraction (now relatively stronger)
+          .force('charge', d3.forceManyBody().strength(originalChargeStrength)) 
+          .force('center', d3.forceCenter(width/2, height/2)) 
           .force('collision', d3.forceCollide().radius(d => rScaleAbstract(d.degree) + originalCollisionRadius));
       
       updateNodeAndLinkStyles(); 
@@ -397,7 +427,7 @@
   linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
       .text(d => d.Animals); 
 
-  // --- Node Group ---
+  // --- Node Group (Omitted for brevity) ---
   const node = g.append('g').attr('class', 'nodes')
     .selectAll('g').data(nodes).join('g').attr('class', 'node')
     .call(d3.drag()
@@ -426,10 +456,9 @@
     );
 
   node.append('circle').attr('fill', '#3b82f6');
-  // Text element for the City Label, size is now set in JS
   node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
-  // --- Zoom Logic ---
+  // --- Zoom Logic (Omitted for brevity) ---
   const zoom = d3.zoom()
       .scaleExtent([0.5, 8]) 
       .on('zoom', (event) => {
@@ -441,7 +470,6 @@
       });
 
   svg.call(zoom);
-  // --- End Zoom Logic ---
 
 
   const tooltip = d3.select('#tooltip');
@@ -547,44 +575,62 @@
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist === 0) return null;
         
+        // 1. Calculate Perpendicular Offset for the entire bundle (new logic)
+        const bundleTotal = d.bundleTotal || 1;
+        const bundleIndex = d.bundleIndex || 0;
+        
+        const offsetMagnitude = 10; // Base spacing between bundles
+        const offset = bundleIndex - (bundleTotal - 1) / 2; // Centered offset: [-0.5, 0.5] for 2 bundles
+        const perpOffset = offset * offsetMagnitude;
+
+        // Calculate the unit vector perpendicular to the link
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const px = -uy; // Perpendicular unit vector X
+        const py = ux;  // Perpendicular unit vector Y
+        
+        // Apply the perpendicular offset to start and end points
+        const offsetX = px * perpOffset;
+        const offsetY = py * perpOffset;
+        
         // Get dynamic radius for link offsetting
         const rSource = d3.select(node.filter(n => n.id === d.source.id).node()).select('circle').attr('r') || mapBaseRadius;
         const rTarget = d3.select(node.filter(n => n.id === d.target.id).node()).select('circle').attr('r') || mapBaseRadius;
-
-        const sx = d.source.x + (dx / dist) * rSource;
-        const sy = d.source.y + (dy / dist) * rSource;
-        const tx = d.target.x - (dx / dist) * rTarget;
-        const ty = d.target.y - (dy / dist) * rTarget;
         
-        // =======================================================
-        // NEW LOGIC FOR MULTIPLE PARALLEL LINKS (CURVATURE INCREASED)
-        // =======================================================
-        const total = d.parallelTotal;
-        const index = d.parallelIndex;
+        // Adjusted start/end points (A -> B)
+        const sx = d.source.x + (dx / dist) * rSource + offsetX;
+        const sy = d.source.y + (dy / dist) * rSource + offsetY;
+        const tx = d.target.x - (dx / dist) * rTarget + offsetX;
+        const ty = d.target.y - (dy / dist) * rTarget + offsetY;
+        
+        // Adjusted distance
+        const adjustedDist = Math.sqrt((tx - sx) * (tx - sx) + (ty - sy) * (ty - sy));
+
+        // 2. Calculate Arc Curvature for links within the bundle (existing logic)
+        const parallelTotal = d.parallelTotal || 1;
+        const parallelIndex = d.parallelIndex || 0;
         
         let dr_factor;
         let arcFlag; 
         
-        // *** CHANGE: Increased curvature from 0.5 to 0.8 ***
         const curvature = 0.8; 
 
-        if (total === 1) {
+        if (parallelTotal === 1) {
             // Straight line
             dr_factor = 0; 
             arcFlag = 0; 
         } else {
-            // Calculate an even spacing factor for the arc radius (dr)
-            // (index - (total - 1) / 2) creates centered indices like [-1.5, -0.5, 0.5, 1.5] for total=4
-            const offset = index - (total - 1) / 2;
+            // Centered indices like [-1.5, -0.5, 0.5, 1.5] for total=4
+            const arcOffset = parallelIndex - (parallelTotal - 1) / 2;
             
-            dr_factor = dist * curvature * offset;
+            dr_factor = adjustedDist * curvature * arcOffset;
 
             // Use the sign of the dr_factor to determine the arc flag (alternates sides)
-            arcFlag = offset > 0 ? 0 : 1; 
+            arcFlag = arcOffset > 0 ? 0 : 1; 
         }
         
         // Use the absolute value of the dynamic dr_factor for the radius (dr)
-        const dr = dist + Math.abs(dr_factor); 
+        const dr = adjustedDist + Math.abs(dr_factor); 
         
         // If dr_factor is near zero (straight line), ensure we don't use the arc command
         if (Math.abs(dr_factor) < 1) {
@@ -593,7 +639,6 @@
              // Sweep flag (arcFlag) determined by the sign of the offset
              d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
         }
-        // =======================================================
 
         return d.pathString;
     });
@@ -608,7 +653,27 @@
         if (!path) return `translate(0, 0)`;
         const totalLength = path.getTotalLength();
         const point = path.getPointAtLength(totalLength / 2);
-        return `translate(${point.x}, ${point.y})`;
+        
+        // NEW: Adjust label position by the offset
+        const bundleTotal = d.bundleTotal || 1;
+        const bundleIndex = d.bundleIndex || 0;
+        const offsetMagnitude = 10; 
+        const offset = bundleIndex - (bundleTotal - 1) / 2; 
+        const perpOffset = offset * offsetMagnitude;
+        
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const px = -uy; 
+        const py = ux;  
+        
+        const offsetX = px * perpOffset;
+        const offsetY = py * perpOffset;
+        
+        return `translate(${point.x - offsetX}, ${point.y - offsetY})`; // Adjust label back towards center
+        
     });
   });
 
