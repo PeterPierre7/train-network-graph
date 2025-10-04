@@ -26,11 +26,15 @@
 
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { 
+        /* CHANGE: Bold city name text */
+        font-weight: bold;
         /* NOTE: Font size set dynamically in updateNodeAndLinkStyles() */
         fill: #000; /* Black for readability on map */
         pointer-events:none; 
         text-anchor: middle;
         dominant-baseline: central;
+        /* CHANGE: Fixed grey text-shadow for background/halo effect */
+        text-shadow: 0 0 3px #ccc, 0 0 3px #ccc, 0 0 3px #ccc; 
     }
     .link { fill:none; cursor:pointer; }
     .link-label text {
@@ -118,31 +122,52 @@
     RouteID: d.RouteID,
     isReciprocal: false
   }));
+  
+  // Map to hold route details for reciprocal check
+  const reciprocalRoutes = {};
 
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
     const t = nodes.find(n => n.id === l.target);
     if(s) s.degree += 1;
     if(t) t.degree += 1;
+    
+    // Create a canonical key for the route (alphabetically sorted cities)
+    const key = [l.source, l.target].sort().join('|') + '|' + l.Animals;
+    
+    if (!reciprocalRoutes[key]) {
+        reciprocalRoutes[key] = [];
+    }
+    reciprocalRoutes[key].push(l);
   });
 
-  const linkKeyMap = {};
+  // Second pass to identify and update reciprocal links
   links.forEach(link => {
-      const directionalKey = `${link.source}|${link.target}|${link.Animals}`;
-      const reverseKey = `${link.target}|${link.source}|${link.Animals}`;
-      if (linkKeyMap[reverseKey]) {
-          link.isReciprocal = true;
-          linkKeyMap[reverseKey].isReciprocal = true;
+      const key = [link.source, link.target].sort().join('|') + '|' + link.Animals;
+      const routes = reciprocalRoutes[key];
+      
+      if (routes.length === 2) {
+          // If there are exactly two links (A->B and B->A) with the same animal, they are reciprocal
+          routes.forEach(r => r.isReciprocal = true);
+          
+          // Store both IDs on the canonical link (the one that comes first alphabetically)
+          const [routeA, routeB] = routes;
+          if (routeA === link) {
+             link.otherRouteID = routeB.RouteID;
+          } else if (routeB === link) {
+             // If this is the second link, copy the other ID
+             link.otherRouteID = routeA.RouteID;
+          }
       }
-      linkKeyMap[directionalKey] = link;
   });
 
   const labeledLinks = links.filter(d => {
+      // If reciprocal, only keep the link that is alphabetically first (A->B)
       if (d.isReciprocal) {
           const [cityA, cityB] = [d.source, d.target].sort();
-          return d.source === cityA;
+          return d.source === cityA; 
       }
-      return true;
+      return true; // Keep all non-reciprocal links
   });
 
   // --- Dropdown Population (Omitted for brevity) ---
@@ -210,7 +235,6 @@
   const linkBaseWidthMap = 1.5;
   const linkLabelSizeMap = 4;
   const linkLabelSizeAbstract = 9;
-  // NEW: City label sizes
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
 
@@ -230,7 +254,7 @@
 
   let isMapMode = true;
 
-  // Function to dynamically update node radius, link width, and all label sizes
+  // Function to dynamically update visual styles based on mode and zoom
   function updateNodeAndLinkStyles() {
       const transform = d3.zoomTransform(svg.node());
       
@@ -259,11 +283,10 @@
           return isMapMode ? `${linkLabelSizeMap}px` : `${linkLabelSizeAbstract}px`;
       });
       
-      // NEW: City Label Font Size Update
+      // City Label Font Size Update
       node.select('text').style('font-size', d => {
           return isMapMode ? `${cityLabelSizeMap}px` : `${cityLabelSizeAbstract}px`;
       });
-
 
       // Update collision force radius if in Abstract mode (needs to be consistent)
       if (!isMapMode && simulation.force('collision')) {
@@ -339,7 +362,11 @@
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle').text(d => d.Animals); 
+  // CHANGE: Update text to show both IDs for reciprocal routes
+  linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
+      .text(d => d.isReciprocal 
+          ? `${d.Animals} (ID ${d.RouteID}, ID ${d.otherRouteID})`
+          : d.Animals); 
 
   // --- Node Group ---
   const node = g.append('g').attr('class', 'nodes')
@@ -381,9 +408,7 @@
           if (currentTooltipLock || d3.select('#tooltip').style('display') === 'block') {
              moveTooltip(event);
           }
-          if (isMapMode) {
-              updateNodeAndLinkStyles(); 
-          }
+          updateNodeAndLinkStyles(); // Always call this to handle map mode scaling
       });
 
   svg.call(zoom);
@@ -410,9 +435,19 @@
     } else {
         const sourceLabel = d.source.label || d.source.id;
         const targetLabel = d.target.label || d.target.id;
-        const status = d.isReciprocal ? ' (Reciprocal Route)' : ' (One-Way Route)';
+        let status = d.isReciprocal 
+             ? `(Reciprocal Route: IDs ${d.RouteID} & ${d.otherRouteID})` 
+             : `(One-Way Route: ID ${d.RouteID})`;
+        
+        // Minor change to tooltip to show both IDs for reciprocal routes
+        if (!d.isReciprocal && d.source.id > d.target.id && d.otherRouteID) {
+            // This handles the case where the one-way link is the second in the pair, 
+            // but for the tooltip, we still use the route's own ID.
+            status = `(One-Way Route: ID ${d.RouteID})`;
+        }
+
         htmlContent = `<strong>Route ID: ${d.RouteID}</strong><br/>
-                       ${sourceLabel} → ${targetLabel}${status}<br/>
+                       ${sourceLabel} → ${targetLabel} ${status}<br/>
                        Animals: ${d.Animals}`;
     }
     tooltip.style('display', 'block').html(htmlContent);
@@ -599,11 +634,11 @@
 
     if (isMapMode) {
         setGeographicalPositions();
-        updateNodeAndLinkStyles();
     } else {
         simulation.force('center', d3.forceCenter(w/2, h/2));
     }
 
+    updateNodeAndLinkStyles();
     simulation.alpha(0.1).alphaTarget(0).restart();
   });
   
