@@ -105,8 +105,9 @@
 (async function(){
 
   const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
-  const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx:csv&sheet=Cities`;
-  const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx:csv&sheet=TrainRoutes`;
+  // *** FIXED URLS HERE ***
+  const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
+  const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
   
   const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
   
@@ -649,6 +650,9 @@
     // Update link label position
     linkLabel.attr('transform', d => {
         // Use the path string stored on the data object
+        // NOTE: We must check if the pathString exists before attempting to get its length
+        if (!d.pathString) return `translate(0, 0)`;
+
         const tempPath = d3.select(document.createElementNS(d3.namespaces.svg, 'path')).attr('d', d.pathString);
         
         if (!tempPath.node()) return `translate(0, 0)`;
