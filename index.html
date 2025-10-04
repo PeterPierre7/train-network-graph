@@ -34,7 +34,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 (async function(){
 
   // --- Google Sheet ID ---
-  const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
+  const sheetId = 'YOUR_SHEET_ID_HERE';
   const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
 
@@ -178,4 +178,11 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   window.addEventListener('resize', ()=>{
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
-    simulation.force('center', d3.forceCenter(w
+    simulation.force('center', d3.forceCenter(w/2,h/2));
+    simulation.alpha(0.3).restart();
+  });
+
+})();
+</script>
+</body>
+</html>
