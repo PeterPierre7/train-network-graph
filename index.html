@@ -27,15 +27,15 @@
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { 
         font-size:10px;
-        /* CHANGE: City names are black for map readability */
-        fill: #000; 
+        fill: #000; /* Black for readability on map */
         pointer-events:none; 
         text-anchor: middle;
         dominant-baseline: central;
     }
     .link { fill:none; cursor:pointer; }
     .link-label text {
-        font-size: 11px;
+        /* CHANGE: Reduced link text size to 9px */
+        font-size: 9px; 
         font-weight: bold;
         fill: #333; 
         pointer-events: none; 
@@ -207,9 +207,9 @@
   const mapBaseRadius = 4;
   const mapMinScaleRatio = 0.5; 
   const mapMaxScaleRatio = 1.5; 
-  // NEW: Base link width for abstract mode and maximum for map mode
-  const linkBaseWidthAbstract = 2.5; 
-  const linkBaseWidthMap = 2.5;
+  // CHANGE: Reduced base link width for both modes
+  const linkBaseWidthAbstract = 1.5; 
+  const linkBaseWidthMap = 1.5;
 
   const originalLinkStrength = 0.8;
   const originalChargeStrength = -150;
@@ -243,7 +243,6 @@
       // Link Width Update
       link.attr('stroke-width', d => {
           if (isMapMode) {
-              // Same inverse scaling logic as nodes for visual coherence
               const scaleRatio = Math.max(mapMinScaleRatio, Math.min(mapMaxScaleRatio, 1 / Math.sqrt(transform.k)));
               return linkBaseWidthMap * scaleRatio;
           } else {
@@ -367,7 +366,7 @@
              moveTooltip(event);
           }
           if (isMapMode) {
-              updateNodeAndLinkStyles(); // Update both node size and link width
+              updateNodeAndLinkStyles(); 
           }
       });
 
