@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network with Animal Filter</title>
+<title>Train Network with Link Tooltip Fixed</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
@@ -126,13 +126,19 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     .attr('y', 4);
 
   const tooltip = d3.select('#tooltip');
+
   function showTooltipLink(event,d){
-    tooltip.style('display','block').html(`<strong>${d.source.label} → ${d.target.label}</strong><br/>Animals: ${d.Animals}`);
+    const sourceLabel = d.source.label || d.source.id;
+    const targetLabel = d.target.label || d.target.id;
+    tooltip.style('display','block')
+      .html(`<strong>${sourceLabel} → ${targetLabel}</strong><br/>Animals: ${d.Animals}`);
   }
+
   function showTooltipNode(event,d){
     tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
     d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);
   }
+
   function moveTooltip(event){ tooltip.style.left=(event.pageX+12)+'px'; tooltip.style.top=(event.pageY+12)+'px'; }
   function hideTooltip(event,d){ tooltip.style.display='none'; d3.select(event.currentTarget).attr('stroke','#fff').attr('stroke-width',1.2); }
 
@@ -161,7 +167,6 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   // Animal filter
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
-    // if no animal selected, do nothing (show all)
     const activeLinks = selectedAnimal 
       ? links.filter(l => l.Animals === selectedAnimal)
       : links;
