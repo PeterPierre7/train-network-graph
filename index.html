@@ -188,12 +188,11 @@
           target: l.target
       };
       
-      // Only add unique entries (Reciprocal A->B and B->A for the same animal are visually one line, but logically two records. 
-      // We only store one animal detail record for a reciprocal route.)
+      // Only add unique entries
       const isUniqueInAggregated = !aggregatedAnimals[canonicalCityPair].some(a => 
           a.name === animalDetail.name && 
-          ((a.isReciprocal && animalDetail.isReciprocal) || // Match if both are reciprocal with same animal
-           (!a.isReciprocal && !animalDetail.isReciprocal && a.source === animalDetail.source && a.target === animalDetail.target)) // Match if both are one-way with same animal and direction
+          ((a.isReciprocal && animalDetail.isReciprocal) || 
+           (!a.isReciprocal && !animalDetail.isReciprocal && a.source === animalDetail.source && a.target === animalDetail.target)) 
       );
 
       if (isUniqueInAggregated) {
@@ -202,10 +201,10 @@
       
       let displayKey;
       if (l.isReciprocal) {
-          // 1. One line for all reciprocal routes (A-B, B-A are identical)
+          // 1. One line for all reciprocal routes
           displayKey = canonicalCityPair + '|reciprocal';
       } else {
-          // 2 & 3. One line for each one-way direction (must respect source/target)
+          // 2 & 3. One line for each one-way direction
           displayKey = l.source + '|' + l.target + '|one-way';
       }
 
@@ -215,7 +214,6 @@
               target: l.target,
               isReciprocal: l.isReciprocal,
               cityPair: canonicalCityPair, 
-              // Store direction indicator for curve logic (A->B or B->A)
               directionKey: l.source + '->' + l.target
           };
       }
@@ -239,11 +237,9 @@
       pathGroups[sortedCities].push(l);
   });
   
-  // Assign index and total to each drawn path for arc curvature
-  // Reciprocal (pathIndex 0) gets straight line. One-way (pathIndex 1 and 2) get opposite curves.
+  // Assign index for arc curvature
   Object.values(pathGroups).forEach(group => {
       
-      // Separate reciprocal and one-way links
       const reciprocalLink = group.find(l => l.isReciprocal);
       const oneWayLinks = group.filter(l => !l.isReciprocal);
 
@@ -251,16 +247,16 @@
           reciprocalLink.pathIndex = 0; // The single straight line
       }
       
-      // Sort one-way links by direction key (e.g., "CityA->CityB", "CityB->CityA")
+      // Sort one-way links consistently
       oneWayLinks.sort((a, b) => a.directionKey.localeCompare(b.directionKey));
 
       oneWayLinks.forEach((link, index) => {
-          // Assign index 1 or 2 for the two one-way curves
+          // pathIndex 1 and 2 for the two parallel curves
           link.pathIndex = index + 1; 
       });
   });
 
-  // --- Dropdown Population ---
+  // --- Dropdown Population (omitted for brevity) ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -277,7 +273,7 @@
     cityDropdown.append('option').attr('value', city).text(city);
   });
   
-  const reciprocalDropdown = d3.select('#reciprocalFilter'); // Ensure this is defined
+  const reciprocalDropdown = d3.select('#reciprocalFilter');
   
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
@@ -286,7 +282,7 @@
 
   const g = svg.append('g'); 
   
-  // --- Map Projection and Drawing ---
+  // --- Map Projection and Drawing (omitted for brevity) ---
   const projection = d3.geoMercator()
       .fitSize([width, height], topojson.feature(world, world.objects.countries));
 
@@ -317,7 +313,7 @@
   }
   setGeographicalPositions(); 
 
-  // --- Force Simulation Configuration and Layout Toggle ---
+  // --- Force Simulation Configuration and Layout Toggle (omitted for brevity) ---
   const rScaleAbstract = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
   
   const mapBaseRadius = 4;
@@ -327,7 +323,9 @@
   const linkBaseWidthMap = 1.5;
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
-  const curvature = 0.5; // Constant curvature for all links
+  
+  // Base curvature magnitude
+  const curvature = 0.5; 
 
   const originalChargeStrength = -350; 
   const originalLinkStrength = 0.4; 
@@ -425,7 +423,7 @@
       }
   });
 
-  // Define arrowheads
+  // Define arrowheads (omitted for brevity)
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green-start').attr('viewBox', '-0 -5 10 10').attr('refX', -10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   g.append('defs').append('marker')
@@ -448,7 +446,7 @@
 
   linkLabel.append('text'); 
 
-  // --- Node Group ---
+  // --- Node Group (omitted for brevity) ---
   const node = g.append('g').attr('class', 'nodes')
     .selectAll('g').data(nodes).join('g').attr('class', 'node')
     .call(d3.drag()
@@ -463,7 +461,6 @@
           if(!event.active) simulation.alphaTarget(0); 
           
           if (isMapMode) {
-              // Lock node to geographical position
               const [x, y] = projection([d.longitude, d.latitude]);
               d.fx = x;
               d.fy = y;
@@ -471,7 +468,6 @@
               d.y = y;
               simulation.alpha(1).restart();
           } else {
-              // Release node for force layout
               d.fx = null;
               d.fy = null;
           }
@@ -481,7 +477,7 @@
   node.append('circle').attr('fill', '#3b82f6');
   node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
-  // --- Zoom Logic and Tooltip ---
+  // --- Zoom Logic and Tooltip (omitted for brevity) ---
   const zoom = d3.zoom()
       .scaleExtent([0.5, 8]) 
       .on('zoom', (event) => {
@@ -501,19 +497,18 @@
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
-              // Unlock Node
               node.select('circle').filter(n => n === currentTooltipLock).attr('stroke', '#fff').attr('stroke-width', 1.5);
           }
           currentTooltipLock = null;
       }
   }
   
-  // Function to create the aggregated tooltip content
+  // Function to create the aggregated tooltip content (omitted for brevity)
   function getLinkTooltipContent(d) {
       const cityPair = d.cityPair; 
       const allAnimals = aggregatedAnimals[cityPair] || [];
 
-      // Filter out only the unique reciprocal animals (since they're in the list twice but we only want to show them once)
+      // Filter out only the unique reciprocal animals
       const reciprocalAnimals = [...new Map(allAnimals.filter(a => a.isReciprocal).map(item => [item['name'], item])).values()];
       
       // Filter for one-way animals
@@ -522,13 +517,11 @@
       const sourceLabel = d.source.label || d.source.id;
       const targetLabel = d.target.label || d.target.id;
       
-      // Simple and direct list for the tooltip
       let htmlContent = `<strong>Route: ${sourceLabel} to ${targetLabel}</strong><hr style="margin: 5px 0; border: none; border-top: 1px solid #ccc;"/>`;
 
       // 1. Reciprocal Section
       if (reciprocalAnimals.length > 0) {
           htmlContent += reciprocalAnimals.map(a => 
-              // FIXED: Changed '\rightarrow' to '\leftrightarrow' for reciprocal
               `<span class="green-text">${a.name} $\\leftrightarrow$</span>` 
           ).join('<br/>') + '<br/>';
       }
@@ -538,7 +531,6 @@
           
           const oneWayList = oneWayAnimals.map(a => {
               // Determine the correct one-way symbol:
-              // If the animal route direction is the same as the drawn link's direction (d.source -> d.target)
               let finalSymbol = (a.source === d.source.id && a.target === d.target.id) 
                                 ? '$\\rightarrow$' 
                                 : '$\\leftarrow$'; 
@@ -606,7 +598,7 @@
   }
 
 
-  // --- Event Listeners ---
+  // --- Event Listeners (omitted for brevity) ---
   link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
       .on('mousemove', moveTooltip).on('mouseout', handleLinkMouseOut)
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
@@ -616,7 +608,6 @@
       .on('click', function(event, d) { handleNodeInteraction(event, d, this); });
 
   svg.on('click', (event) => {
-    // Dismiss lock if click is on the SVG background (or map elements)
     if (event.target.tagName === 'svg' || event.target.tagName === 'path' && (d3.select(event.target).attr('class') === 'sphere' || d3.select(event.target).attr('class') === 'country')) {
         dismissLock();
         tooltip.style('display', 'none');
@@ -653,25 +644,29 @@
         if (d.pathIndex === 0) {
             d.pathString = `M${sx},${sy}L${tx},${ty}`;
         } else {
-            // PathIndex 1 & 2 = One-way (opposite curves)
-            // pathIndex = 1 gets negative offset (curves to the right/up initially)
-            // pathIndex = 2 gets positive offset (curves to the left/down initially)
-            const offset = (d.pathIndex === 1) ? -0.5 : 0.5;
+            // PathIndex 1 & 2 = One-way (parallel curves in one direction)
+            
+            // 1. Determine the magnitude offset for separation:
+            // Path 1 gets smaller offset, Path 2 gets larger offset.
+            const offsetMagnitude = (d.pathIndex === 1) ? 0.2 : 0.8; 
+            
+            // We use a constant positive sign for the offset for a single curve direction
+            const offset = offsetMagnitude; 
             
             // dr_factor controls the magnitude of the curve
             const dr_factor = adjustedDist * curvature * offset;
 
-            // arcFlag controls the direction of the arc for the SVG 'A' command
-            // pathIndex 1: arcFlag=1 (sweep flag set)
-            // pathIndex 2: arcFlag=0 (sweep flag not set)
-            const arcFlag = (d.pathIndex === 1) ? 1 : 0; 
+            // 2. The sweep flag (arcFlag) controls the direction. We keep it constant (e.g., 0) for one direction.
+            const arcFlag = 0; 
             
-            const dr = adjustedDist + Math.abs(dr_factor); 
+            // The radius for the arc command
+            const dr = adjustedDist + dr_factor; 
             
-            if (Math.abs(dr_factor) < 1) {
+            if (dr <= adjustedDist) { // Check for straight line fallback (shouldn't happen with positive offset)
                  d.pathString = `M${sx},${sy}L${tx},${ty}`;
             } else {
-                 // Use large radius (dr) and opposite sweep flags to ensure separation
+                 // Final Arc Path Command: M (start) A (rx, ry, xAxisRotation, largeArcFlag, sweepFlag, endX, endY)
+                 // Keeping largeArcFlag (0) and sweepFlag (0) constant forces the single direction.
                  d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
             }
         }
@@ -680,7 +675,7 @@
     });
   });
 
-  // --- Filtering Logic ---
+  // --- Filtering Logic (omitted for brevity) ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
@@ -691,14 +686,12 @@
     let activeLinks = labeledLinks;
     let connectedNodeIds = new Set();
     
-    // 1. Filter by Animal: Links contain at least one route with the selected animal
+    // 1. Filter by Animal
     if (selectedAnimal !== 'all') {
         const filteredCityPairs = new Set();
-        // Check if *any* route between the city pair involves the selected animal
         links.filter(l => l.Animals === selectedAnimal).forEach(l => {
             filteredCityPairs.add([l.source, l.target].sort().join('|'));
         });
-        
         activeLinks = activeLinks.filter(l => filteredCityPairs.has(l.cityPair));
     }
 
@@ -721,19 +714,16 @@
         connectedNodeIds.add(l.target.id);
     });
 
-    // Also include any nodes that have the animal we are filtering for, even if unconnected
     if (selectedAnimal !== 'all') {
          nodes.forEach(n => { 
             if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
          });
     }
 
-    // If 'City' is selected, ensure that city is visible even if it has no active links with current filters
     if (selectedCity !== 'all') {
         connectedNodeIds.add(selectedCity);
     } 
     
-    // If all filters are 'all', make *all* nodes visible (This fixes the default state issue)
     if (selectedAnimal === 'all' && selectedCity === 'all' && connectedNodeIds.size === 0) {
         nodes.forEach(n => connectedNodeIds.add(n.id));
     }
@@ -745,17 +735,12 @@
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
     
-    // Link Labels (currently hidden by CSS but included for completeness)
-    linkLabel.transition().duration(duration)
-      .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
-      .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
-
     // Nodes (Circles and Text)
     node.transition().duration(duration)
       .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0)
       .style('pointer-events', d => connectedNodeIds.has(d.id) ? 'auto' : 'none');
       
-    // Node Text (Explicitly setting opacity on text element, ensuring it's visible with the node)
+    // Node Text
     node.select('text').transition().duration(duration)
        .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0);
   }
@@ -764,7 +749,7 @@
   cityDropdown.on('change', updateVisualization);
   reciprocalDropdown.on('change', updateVisualization);
   
-  // Resize handler 
+  // Resize handler (omitted for brevity)
   window.addEventListener('resize', () => {
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
@@ -787,7 +772,7 @@
   // Initial run
   updateNodeAndLinkStyles(); 
   simulation.alpha(1).restart(); 
-  updateVisualization(); // This call now ensures default visibility
+  updateVisualization(); 
 
 })();
 </script>
