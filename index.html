@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network - Geographical Layout</title>
+<title>Train Network - Toggable Layout</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
     body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
@@ -11,7 +11,7 @@
     #controls select { width: 100%; margin-bottom: 15px; padding: 5px; }
     #chart { flex:1; height:100vh; }
     
-    /* NEW: Map Styles */
+    /* Map Styles */
     .country {
         fill: #e0e0e0; /* Light gray for land */
         stroke: #ccc;
@@ -19,6 +19,9 @@
     }
     .sphere {
         fill: #f0f8ff; /* Light blue for ocean */
+    }
+    .map-element {
+        transition: opacity 0.5s;
     }
 
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
@@ -48,6 +51,20 @@
         display:none; 
         line-height: 1.4;
     }
+    #mapToggle {
+        padding: 8px 10px;
+        margin-top: 10px;
+        width: 100%;
+        cursor: pointer;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+    #mapToggle.active {
+        background-color: #28a745;
+    }
 </style>
 </head>
 <body>
@@ -62,6 +79,7 @@
     <label for="animalFilter">Animal:</label>
     <select id="animalFilter">
       </select>
+    <button id="mapToggle" class="active">Toggle Map (ON)</button>
   </div>
   <div id="chart"></div>
 </div>
@@ -76,7 +94,6 @@
   const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
   
-  // NEW: Load TopoJSON data for the world map
   const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
   
   const [nodesRaw, linksRaw] = await Promise.all([d3.csv(citiesUrl), d3.csv(routesUrl)]);
@@ -85,12 +102,13 @@
     id: d.CityName,
     label: d.CityName,
     animals: d.HouseAnimals ? d.HouseAnimals.split(',').map(a => a.trim()) : [],
-    // NEW: Parse location data
     longitude: +d.Longitude, 
     latitude: +d.Latitude,
     degree: 0,
-    fx: null, // Fixed X position for geographic layout
-    fy: null  // Fixed Y position for geographic layout
+    fx: null, 
+    fy: null,
+    x: 0, // D3 requires x/y even if fixed
+    y: 0 
   }));
 
   const links = linksRaw.map(d => ({
@@ -108,7 +126,6 @@
     if(t) t.degree += 1;
   });
 
-  // LOGIC: Identify and flag reciprocal links (omitted for brevity, assume this runs)
   const linkKeyMap = {};
   links.forEach(link => {
       const directionalKey = `${link.source}|${link.target}|${link.Animals}`;
@@ -128,7 +145,7 @@
       return true;
   });
 
-  // --- Dropdown Population (omitted for brevity, assume this runs) ---
+  // --- Dropdown Population ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -152,47 +169,113 @@
 
   const g = svg.append('g'); 
   
-  // --- NEW: Map Projection and Drawing ---
+  // --- Map Projection and Drawing ---
   const projection = d3.geoMercator()
       .fitSize([width, height], topojson.feature(world, world.objects.countries));
 
   const path = d3.geoPath().projection(projection);
 
   // Draw Sphere (Ocean)
-  g.append("path")
-      .attr("class", "sphere")
+  const sphere = g.append("path")
+      .attr("class", "sphere map-element")
       .attr("d", path({type: "Sphere"}));
 
   // Draw Countries (Land)
-  g.append("g")
-      .attr("class", "countries")
+  const countries = g.append("g")
+      .attr("class", "countries map-element")
       .selectAll("path")
       .data(topojson.feature(world, world.objects.countries).features)
       .join("path")
       .attr("class", "country")
       .attr("d", path);
 
-  // Calculate projected coordinates for each node and fix them
-  nodes.forEach(d => {
-      if (d.longitude && d.latitude) {
-          const [x, y] = projection([d.longitude, d.latitude]);
-          d.x = x;
-          d.y = y;
-          d.fx = x; // Fix the position based on the map
-          d.fy = y; // Fix the position based on the map
+  // Calculate and fix geographical positions
+  function setGeographicalPositions() {
+      nodes.forEach(d => {
+          if (d.longitude && d.latitude) {
+              const [x, y] = projection([d.longitude, d.latitude]);
+              d.x = x;
+              d.y = y;
+              d.fx = x; // Fix the position
+              d.fy = y; // Fix the position
+          }
+      });
+  }
+  setGeographicalPositions(); // Set initial geographical positions
+
+  // --- Force Simulation Configuration ---
+  const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
+  
+  // Store original force settings for abstract layout
+  const originalLinkStrength = 0.8;
+  const originalChargeStrength = -150;
+  const originalCollisionRadius = 5;
+
+  const simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.05)) // Start weak (map mode)
+      .alpha(0.1).alphaTarget(0);
+      
+  // Initialize with geographical layout forces (all forces set to null/0)
+  simulation
+      .force('charge', null)
+      .force('center', null)
+      .force('collision', null);
+
+  let isMapMode = true;
+
+  // --- Layout Toggle Logic ---
+  function setAbstractLayout() {
+      isMapMode = false;
+      d3.select('#mapToggle').text('Toggle Map (OFF)').attr('class', '');
+      g.selectAll(".map-element").style('opacity', 0).style('pointer-events', 'none');
+
+      // Unfix all nodes
+      nodes.forEach(d => {
+          d.fx = null;
+          d.fy = null;
+      });
+
+      // Restore forces
+      simulation
+          .force('link').strength(originalLinkStrength);
+      simulation
+          .force('charge', d3.forceManyBody().strength(originalChargeStrength))
+          .force('center', d3.forceCenter(width/2, height/2))
+          .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + originalCollisionRadius));
+      
+      // Warm restart
+      simulation.alpha(1).restart();
+  }
+
+  function setGeographicalLayout() {
+      isMapMode = true;
+      d3.select('#mapToggle').text('Toggle Map (ON)').attr('class', 'active');
+      g.selectAll(".map-element").style('opacity', 1).style('pointer-events', 'auto');
+      
+      // Calculate and fix nodes to map coordinates
+      setGeographicalPositions(); 
+      
+      // Reduce forces (only keep weak link force)
+      simulation
+          .force('link').strength(0.05);
+      simulation
+          .force('charge', null)
+          .force('center', null)
+          .force('collision', null);
+      
+      // Warm restart
+      simulation.alpha(1).restart();
+  }
+
+  d3.select('#mapToggle').on('click', () => {
+      if (isMapMode) {
+          setAbstractLayout();
+      } else {
+          setGeographicalLayout();
       }
   });
 
-  // --- Force Simulation (Greatly Reduced) ---
-  const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
 
-  const simulation = d3.forceSimulation(nodes)
-      // Only keep the link force, greatly reduced strength
-      .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.05)) 
-      // Removed forceCenter, forceCharge, and forceCollide
-      .alpha(0.1).alphaTarget(0).restart();
-  // ----------------------------------------
-  
   // Define arrowheads (omitted for brevity, assume this runs)
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
@@ -200,67 +283,53 @@
     .attr('id', 'arrowhead-red').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'red');
 
 
-  // --- Link Path Drawing Group ---
+  // --- Link Path Drawing Group (omitted for brevity, assume this runs) ---
   const link = g.append('g').attr('class', 'links')
-    .selectAll('path')
-    .data(links)
-    .join('path')
-    .attr('class', 'link')
-    .attr('stroke-width', 2.5)
-    .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
-    .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)');
+    .selectAll('path').data(links).join('path').attr('class', 'link').attr('stroke-width', 2.5)
+    .attr('stroke', d => d.isReciprocal ? 'green' : 'red').attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)');
 
-  // --- Link Label Group ---
+  // --- Link Label Group (omitted for brevity, assume this runs) ---
   const linkLabel = g.append('g').attr('class', 'link-labels')
-    .selectAll('g')
-    .data(labeledLinks)
-    .join('g')
-    .attr('class', 'link-label');
+    .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  linkLabel.append('text')
-    .attr('dy', -3)
-    .attr('text-anchor', 'middle')
-    .text(d => d.Animals); 
+  linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle').text(d => d.Animals); 
 
-  // --- Node Group ---
+  // --- Node Group (omitted for brevity, assume this runs) ---
   const node = g.append('g').attr('class', 'nodes')
-    .selectAll('g')
-    .data(nodes)
-    .join('g')
-    .attr('class', 'node')
+    .selectAll('g').data(nodes).join('g').attr('class', 'node')
     .call(d3.drag()
       .on('start', (event,d) => { 
           if(!event.active) simulation.alphaTarget(0.3).restart(); 
-          // Allow dragging, but fix it back to its geo-position on end
           d.fx=d.x; d.fy=d.y; 
       })
       .on('drag', (event,d) => { 
           d.fx=event.x; d.fy=event.y; 
       })
       .on('end', (event,d) => { 
-          // NEW: Snap the node back to its geographical position after drag
           if(!event.active) simulation.alphaTarget(0); 
-          const [x, y] = projection([d.longitude, d.latitude]);
-          d.fx = x;
-          d.fy = y;
-          d.x = x;
-          d.y = y;
-          simulation.restart();
+          
+          if (isMapMode) {
+              // Snap back to geographical position if in map mode
+              const [x, y] = projection([d.longitude, d.latitude]);
+              d.fx = x;
+              d.fy = y;
+              d.x = x;
+              d.y = y;
+              simulation.restart();
+          } else {
+              // Let force simulation take over if in abstract mode
+              d.fx = null;
+              d.fy = null;
+          }
       })
     );
 
-  node.append('circle')
-    .attr('r', d => rScale(d.degree))
-    .attr('fill', '#3b82f6');
-
-  node.append('text')
-    .text(d => d.label)
-    .attr('x', 0)
-    .attr('y', 0);
+  node.append('circle').attr('r', d => rScale(d.degree)).attr('fill', '#3b82f6');
+  node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
   // --- Zoom Logic ---
   const zoom = d3.zoom()
-      .scaleExtent([0.5, 8]) // Adjusted scale extent for map viewing
+      .scaleExtent([0.5, 8]) 
       .on('zoom', (event) => {
           g.attr('transform', event.transform);
           if (currentTooltipLock || d3.select('#tooltip').style('display') === 'block') {
@@ -275,20 +344,7 @@
   const tooltip = d3.select('#tooltip');
   let currentTooltipLock = null; 
 
-  // --- Tooltip Logic (Omitted for brevity, using previous implementation) ---
-  function dismissLock() { /* ... */ }
-  function updateTooltip(event, d, isNode) { /* ... */ }
-  function handleLinkInteraction(event, d) { /* ... */ }
-  function handleLinkMouseOut() { /* ... */ }
-  function handleNodeInteraction(event, d, circleElement) { /* ... */ }
-  function handleNodeMouseOut(event, d, circleElement) { /* ... */ }
-  function moveTooltip(event) {
-    const x = event.sourceEvent ? event.sourceEvent.pageX : event.pageX;
-    const y = event.sourceEvent ? event.sourceEvent.pageY : event.pageY;
-    tooltip.style('left', (x + 12) + 'px').style('top', (y + 12) + 'px'); 
-  }
-  
-  // Re-define placeholder functions to keep the script runnable
+  // --- Tooltip Logic (omitted for brevity, same as before) ---
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
@@ -345,8 +401,15 @@
       if (currentTooltipLock !== d) { d3.select(circleElement).attr('stroke', '#fff').attr('stroke-width', 1.5); }
       if (currentTooltipLock === null) { tooltip.style('display', 'none'); }
   }
+  function moveTooltip(event) {
+    const x = event.sourceEvent ? event.sourceEvent.pageX : event.pageX;
+    const y = event.sourceEvent ? event.sourceEvent.pageY : event.sourceEvent.pageY;
 
-  // --- Event Listeners (omitted for brevity, assume this runs) ---
+    tooltip.style('left', (x + 12) + 'px').style('top', (y + 12) + 'px'); 
+  }
+
+
+  // --- Event Listeners (omitted for brevity, same as before) ---
   link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
       .on('mousemove', moveTooltip).on('mouseout', handleLinkMouseOut)
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
@@ -364,9 +427,9 @@
 
 
   simulation.on('tick', () => {
-    // We rely on the initial fixed position (d.fx, d.fy) for nodes, 
-    // so we only update link paths and labels based on the fixed node positions (d.x, d.y)
-    
+    // Node position is now either fixed (map mode) or determined by forces (abstract mode)
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
+
     link.attr('d', d => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
@@ -398,9 +461,6 @@
         return d.pathString;
     });
     
-    // Node position is now fixed by d.fx and d.fy set outside of the tick function
-    node.attr('transform', d => `translate(${d.x},${d.y})`);
-
     // Update link label position
     linkLabel.attr('transform', d => {
         const path = link.filter(p => p.source.id === d.source.id && p.target.id === d.target.id && p.Animals === d.Animals).node();
@@ -411,7 +471,7 @@
     });
   });
 
-  // --- Filtering Logic (Omitted for brevity, assume this runs) ---
+  // --- Filtering Logic (omitted for brevity, same as before) ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
@@ -488,20 +548,19 @@
     g.selectAll(".sphere").attr("d", path({type: "Sphere"}));
     g.selectAll(".country").attr("d", path);
 
-    // Re-calculate and fix node positions
-    nodes.forEach(d => {
-        if (d.longitude && d.latitude) {
-            const [x, y] = projection([d.longitude, d.latitude]);
-            d.fx = d.x = x;
-            d.fy = d.y = y;
-        }
-    });
+    // If in map mode, re-fix node positions
+    if (isMapMode) {
+        setGeographicalPositions();
+    } else {
+        // Recenter abstract layout
+        simulation.force('center', d3.forceCenter(w/2, h/2));
+    }
 
-    // Rerender positions without simulation (since they are fixed)
-    simulation.alpha(0.1).alphaTarget(0).restart(); // Restart to re-run tick once
+    // Rerender positions
+    simulation.alpha(0.1).alphaTarget(0).restart();
   });
   
-  // Initial restart to apply new positions
+  // Initial run (Map Mode is default)
   simulation.alpha(1).restart(); 
 
 })();
