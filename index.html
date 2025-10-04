@@ -448,13 +448,21 @@
   });
 
   // Define arrowheads 
+  // REF X CHANGED TO 0 TO ALIGN THE ARROWHEAD TIP WITH THE DYNAMIC LINE ENDPOINT
   g.append('defs').append('marker')
-    .attr('id', 'arrowhead-green-start').attr('viewBox', '-0 -5 10 10').attr('refX', -10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
-  g.append('defs').append('marker')
-    .attr('id', 'arrowhead-green-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
+    .attr('id', 'arrowhead-green-start').attr('viewBox', '-0 -5 10 10')
+    .attr('refX', 0) 
+    .attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   
   g.append('defs').append('marker')
-    .attr('id', 'arrowhead-red-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'red');
+    .attr('id', 'arrowhead-green-end').attr('viewBox', '-0 -5 10 10')
+    .attr('refX', 0)
+    .attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
+  
+  g.append('defs').append('marker')
+    .attr('id', 'arrowhead-red-end').attr('viewBox', '-0 -5 10 10')
+    .attr('refX', 0)
+    .attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'red');
 
 
   // --- Link Path Drawing Group ---
@@ -743,7 +751,7 @@
     });
 
     // *** FIX: Use parallel offset to separate the labels along the length of the line ***
-    const parallelOffset = 0; // Distance to shift the labels along the line's direction
+    // const parallelOffset = 0; // Distance to shift the labels along the line's direction
 
     linkLabel.attr('transform', function(d) {
         if (!d.midpoint) return 'translate(0,0)'; 
@@ -759,20 +767,20 @@
             perpendicularOffsetMagnitude = 0;
             finalParallelOffset = 0; 
         } else if (d.pathIndex === 1) {
-            // Index 1 (One-way/Curve 1) -> *** Changed to positive perpendicular offset ***
+            // Index 1 (One-way/Curve 1) -> Symmetrical positive offset
             perpendicularOffsetMagnitude = 20; 
-            finalParallelOffset = 0; // Shift towards the source node
+            finalParallelOffset = 0;
         } else { // d.pathIndex === 2
-            // Index 2 (One-way/Curve 2) -> *** Changed to a larger positive perpendicular offset ***
+            // Index 2 (One-way/Curve 2) -> Symmetrical positive offset (same side)
             perpendicularOffsetMagnitude = 20; 
-            finalParallelOffset = parallelOffset; // Shift towards the target node
+            finalParallelOffset = 0;
         }
         
         // 1. Calculate the PERPENDICULAR (side-to-side) translation
         const offsetX_perp = perpendicularOffsetMagnitude * (-Math.sin(angle));
         const offsetY_perp = perpendicularOffsetMagnitude * (Math.cos(angle));
 
-        // 2. Calculate the PARALLEL (along-the-line) translation
+        // 2. Calculate the PARALLEL (along-the-line) translation (which is 0 for centering)
         const offsetX_par = finalParallelOffset * (Math.cos(angle));
         const offsetY_par = finalParallelOffset * (Math.sin(angle));
 
