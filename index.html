@@ -82,6 +82,13 @@
     <label for="animalFilter">Animal:</label>
     <select id="animalFilter">
       </select>
+    <hr style="margin: 15px 0; border-top: 1px solid #ccc;">
+    <label for="reciprocalFilter">Route Type:</label>
+    <select id="reciprocalFilter">
+        <option value="all">Show All Routes</option>
+        <option value="reciprocal">Only Reciprocal (Two-way)</option>
+        <option value="one-way">Only One-way</option>
+      </select>
     <button id="mapToggle" class="active">Toggle Map (ON)</button>
   </div>
   <div id="chart"></div>
@@ -186,6 +193,9 @@
     cityDropdown.append('option').attr('value', city).text(city);
   });
 
+  const reciprocalDropdown = d3.select('#reciprocalFilter');
+  // Dropdown already populated in HTML
+
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
   const height = container.node().clientHeight;
@@ -237,16 +247,15 @@
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
 
-  // CHANGE 1: Weaker global repulsion to allow the center force (cohesion) to dominate more
+  // Physics for tight cluster, separated by link distance
   const originalChargeStrength = -350; 
-  // Link Attraction (Spring force) remains moderate
   const originalLinkStrength = 0.4; 
+  const linkDistanceAbstract = 150;
   
   const originalCollisionRadius = 5;
 
   const simulation = d3.forceSimulation(nodes)
-      // CHANGE 2: Decreased link distance to encourage a tighter initial packing
-      .force('link', d3.forceLink(links).id(d => d.id).distance(150).strength(0.05))
+      .force('link', d3.forceLink(links).id(d => d.id).distance(linkDistanceAbstract).strength(0.05))
       .alpha(0.1).alphaTarget(0);
       
   simulation
@@ -311,7 +320,7 @@
 
       // Link strength is moderate attraction to define link distances
       simulation
-          .force('link').strength(originalLinkStrength);
+          .force('link').strength(originalLinkStrength).distance(linkDistanceAbstract);
       simulation
           .force('charge', d3.forceManyBody().strength(originalChargeStrength)) // Node Repulsion (weaker)
           .force('center', d3.forceCenter(width/2, height/2)) // Node Attraction (now relatively stronger)
@@ -329,7 +338,7 @@
       setGeographicalPositions(); 
       
       simulation
-          .force('link').strength(0.05);
+          .force('link').strength(0.05).distance(200);
       simulation
           .force('charge', null)
           .force('center', null)
@@ -419,7 +428,7 @@
   const tooltip = d3.select('#tooltip');
   let currentTooltipLock = null; 
 
-  // --- Tooltip Logic ---
+  // --- Tooltip Logic (Omitted for brevity) ---
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
@@ -557,55 +566,79 @@
     });
   });
 
-  // --- Filtering Logic (Omitted for brevity) ---
+  // --- Filtering Logic ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
+    const selectedReciprocal = reciprocalDropdown.node().value; // NEW
+
     const duration = 300; 
 
     let activeLinks = links;
     let activeLabeledLinks = labeledLinks;
     let connectedNodeIds = new Set();
     
+    // 1. Filter by Animal
     if (selectedAnimal !== 'all') {
         activeLinks = activeLinks.filter(l => l.Animals === selectedAnimal);
         activeLabeledLinks = activeLabeledLinks.filter(l => l.Animals === selectedAnimal);
     }
+
+    // 2. Filter by Reciprocal Status (NEW)
+    if (selectedReciprocal !== 'all') {
+        const isReciprocal = (selectedReciprocal === 'reciprocal');
+        activeLinks = activeLinks.filter(l => l.isReciprocal === isReciprocal);
+        
+        // Filter labeled links (which only includes the A->B version of reciprocal links)
+        activeLabeledLinks = activeLabeledLinks.filter(l => {
+            // For one-way, we filter by non-reciprocal.
+            if (!isReciprocal) {
+                return l.isReciprocal === false;
+            }
+            // For reciprocal, we filter by reciprocal (which is why we only keep A->B link)
+            return l.isReciprocal === true;
+        });
+    }
     
+    // 3. Filter by City
     if (selectedCity !== 'all') {
         const cityLinks = links.filter(l => 
             (l.source.id === selectedCity || l.target.id === selectedCity)
         );
         
-        if (selectedAnimal !== 'all') {
-            activeLinks = cityLinks.filter(l => l.Animals === selectedAnimal);
-        } else {
-            activeLinks = cityLinks;
-        }
-        
+        // Intersect cityLinks with currently activeLinks (already filtered by animal/reciprocal status)
+        const cityLinkIds = new Set(cityLinks.map(l => l.RouteID));
+        activeLinks = activeLinks.filter(l => cityLinkIds.has(l.RouteID));
+
+        // Filter labeled links (must match city and be in the active set)
         activeLabeledLinks = activeLabeledLinks.filter(l => 
-            (l.source.id === selectedCity || l.target.id === selectedCity)
+            (l.source.id === selectedCity || l.target.id === selectedCity) && activeLinks.some(al => al.RouteID === l.RouteID)
         );
 
-        connectedNodeIds.add(selectedCity);
-        activeLinks.forEach(l => {
-            connectedNodeIds.add(l.source.id);
-            connectedNodeIds.add(l.target.id);
-        });
+    } 
+    
+    // 4. Determine Active Nodes
+    activeLinks.forEach(l => {
+        connectedNodeIds.add(l.source.id);
+        connectedNodeIds.add(l.target.id);
+    });
 
-    } else if (selectedAnimal !== 'all') {
-         activeLinks.forEach(l => {
-            connectedNodeIds.add(l.source.id);
-            connectedNodeIds.add(l.target.id);
-         });
-         nodes.forEach(n => { 
-            if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
-         });
-    } else {
-        nodes.forEach(n => connectedNodeIds.add(n.id));
+    // If no links are active, check if any nodes are active based on the city/animal filters alone
+    if (connectedNodeIds.size === 0) {
+        if (selectedCity !== 'all') {
+            connectedNodeIds.add(selectedCity);
+        } else if (selectedAnimal !== 'all') {
+             nodes.forEach(n => { 
+                if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
+             });
+        } else {
+            // Show all nodes if all filters are 'all' (default view)
+            nodes.forEach(n => connectedNodeIds.add(n.id));
+        }
     }
 
 
+    // 5. Apply Transitions
     link.transition().duration(duration)
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
@@ -621,6 +654,7 @@
 
   animalDropdown.on('change', updateVisualization);
   cityDropdown.on('change', updateVisualization);
+  reciprocalDropdown.on('change', updateVisualization); // NEW listener
   
   // Resize handler updated
   window.addEventListener('resize', () => {
