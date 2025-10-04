@@ -8,6 +8,7 @@
     body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
     #layout { display:flex; height:100vh; width:100vw; margin:0; }
     #controls { width:220px; background:#f8f9fa; padding:15px; border-right:1px solid #ccc; box-sizing:border-box; }
+    #controls select { width: 100%; margin-bottom: 15px; padding: 5px; }
     #chart { flex:1; height:100vh; }
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { font-size:12px; pointer-events:none; }
@@ -30,6 +31,10 @@
 <div id="layout">
   <div id="controls">
     <h3>Filter</h3>
+    <label for="cityFilter">City:</label>
+    <select id="cityFilter">
+      </select>
+    <hr style="margin: 15px 0; border-top: 1px solid #ccc;">
     <label for="animalFilter">Animal:</label>
     <select id="animalFilter">
       </select>
@@ -87,6 +92,7 @@
       linkKeyMap[directionalKey] = link;
   });
 
+  // --- Dropdown Population ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -96,6 +102,14 @@
   Array.from(animalSet).sort().forEach(a => {
     animalDropdown.append('option').attr('value', a).text(a);
   });
+  
+  // 👇 NEW: Populate City dropdown
+  const cityDropdown = d3.select('#cityFilter');
+  cityDropdown.append('option').attr('value', 'all').text('Show All');
+  nodes.map(d => d.id).sort().forEach(city => {
+    cityDropdown.append('option').attr('value', city).text(city);
+  });
+  // 👆 END NEW
 
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
@@ -143,9 +157,7 @@
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([6, 24]);
 
   const simulation = d3.forceSimulation(nodes)
-    // 👇 MODIFIED: Increased distance for longer default link length (from 150 to 200)
     .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8))
-    // Reduced negative strength to lessen repulsion of isolated nodes
     .force('charge', d3.forceManyBody().strength(-150))
     .force('center', d3.forceCenter(width/2, height/2))
     .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
@@ -244,44 +256,73 @@
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // --- Filter logic to make inactive elements disappear ---
-  animalDropdown.on('change', function() {
-    const selectedAnimal = this.value;
+  // --- Filtering Logic (Combined Handler) ---
+  
+  function updateVisualization() {
+    const selectedAnimal = animalDropdown.node().value;
+    const selectedCity = cityDropdown.node().value;
     const duration = 300; // Animation duration in milliseconds
 
-    if (selectedAnimal === 'all') {
-      // Fade everything back in to full visibility
-      link.transition().duration(duration)
-        .style('opacity', 1.0)
-        .style('pointer-events', 'auto');
-      
-      node.transition().duration(duration)
-        .style('opacity', 1.0)
-        .style('pointer-events', 'auto');
-
-    } else {
-      // Determine which nodes and links should be visible
-      const activeLinks = links.filter(l => l.Animals === selectedAnimal);
-      const connectedNodeIds = new Set();
-      activeLinks.forEach(l => {
-        connectedNodeIds.add(typeof l.source === 'object' ? l.source.id : l.source);
-        connectedNodeIds.add(typeof l.target === 'object' ? l.target.id : l.target);
-      });
-      nodes.forEach(n => { 
-        if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
-      });
-
-      // Fade links in or out based on whether they are active
-      link.transition().duration(duration)
-        .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
-        .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
-      
-      // Fade nodes in or out based on whether they are connected
-      node.transition().duration(duration)
-        .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0)
-        .style('pointer-events', d => connectedNodeIds.has(d.id) ? 'auto' : 'none');
+    let activeLinks = links;
+    let connectedNodeIds = new Set();
+    
+    // 1. Apply Animal Filter
+    if (selectedAnimal !== 'all') {
+        activeLinks = activeLinks.filter(l => l.Animals === selectedAnimal);
     }
-  });
+    
+    // 2. Apply City Filter
+    if (selectedCity !== 'all') {
+        // Filter links that start or end at the selected city
+        const cityLinks = links.filter(l => 
+            (l.source.id === selectedCity || l.target.id === selectedCity)
+        );
+        
+        // If an animal filter is also active, only show the intersection of both filters
+        if (selectedAnimal !== 'all') {
+            activeLinks = cityLinks.filter(l => l.Animals === selectedAnimal);
+        } else {
+            activeLinks = cityLinks;
+        }
+
+        // Identify nodes: the selected city and all connected neighbors
+        connectedNodeIds.add(selectedCity);
+        activeLinks.forEach(l => {
+            connectedNodeIds.add(l.source.id);
+            connectedNodeIds.add(l.target.id);
+        });
+
+    } else if (selectedAnimal !== 'all') {
+         // Only animal filter is active - calculate connected nodes based on activeLinks from animal filter
+         activeLinks.forEach(l => {
+            connectedNodeIds.add(l.source.id);
+            connectedNodeIds.add(l.target.id);
+         });
+         nodes.forEach(n => { 
+            if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
+         });
+    } else {
+        // No filter active, include all nodes
+        nodes.forEach(n => connectedNodeIds.add(n.id));
+    }
+
+
+    // Transition links
+    link.transition().duration(duration)
+      .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
+      .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
+    
+    // Transition nodes
+    node.transition().duration(duration)
+      .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0)
+      .style('pointer-events', d => connectedNodeIds.has(d.id) ? 'auto' : 'none');
+  }
+
+  // Attach the single update function to both dropdowns
+  animalDropdown.on('change', updateVisualization);
+  cityDropdown.on('change', updateVisualization);
+  
+  // --- END Filtering Logic ---
 
   window.addEventListener('resize', () => {
     const w = container.node().clientWidth, h = container.node().clientHeight;
