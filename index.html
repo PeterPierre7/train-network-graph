@@ -26,14 +26,13 @@
 
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { 
-        /* CHANGE: Bold city name text */
         font-weight: bold;
         /* NOTE: Font size set dynamically in updateNodeAndLinkStyles() */
         fill: #000; /* Black for readability on map */
         pointer-events:none; 
         text-anchor: middle;
         dominant-baseline: central;
-        /* CHANGE: Fixed grey text-shadow for background/halo effect */
+        /* Fixed grey text-shadow for background/halo effect */
         text-shadow: 0 0 3px #ccc, 0 0 3px #ccc, 0 0 3px #ccc; 
     }
     .link { fill:none; cursor:pointer; }
@@ -162,7 +161,7 @@
   });
 
   const labeledLinks = links.filter(d => {
-      // If reciprocal, only keep the link that is alphabetically first (A->B)
+      // If reciprocal, only keep the link that is alphabetically first (A->B) for the label/path
       if (d.isReciprocal) {
           const [cityA, cityB] = [d.source, d.target].sort();
           return d.source === cityA; 
@@ -362,11 +361,9 @@
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // CHANGE: Update text to show both IDs for reciprocal routes
+  // CHANGE: Link label only shows Animal type (ID is removed from the visible label)
   linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
-      .text(d => d.isReciprocal 
-          ? `${d.Animals} (ID ${d.RouteID}, ID ${d.otherRouteID})`
-          : d.Animals); 
+      .text(d => d.Animals); 
 
   // --- Node Group ---
   const node = g.append('g').attr('class', 'nodes')
@@ -408,7 +405,7 @@
           if (currentTooltipLock || d3.select('#tooltip').style('display') === 'block') {
              moveTooltip(event);
           }
-          updateNodeAndLinkStyles(); // Always call this to handle map mode scaling
+          updateNodeAndLinkStyles(); 
       });
 
   svg.call(zoom);
@@ -418,7 +415,7 @@
   const tooltip = d3.select('#tooltip');
   let currentTooltipLock = null; 
 
-  // --- Tooltip Logic (Omitted for brevity) ---
+  // --- Tooltip Logic ---
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
@@ -435,18 +432,19 @@
     } else {
         const sourceLabel = d.source.label || d.source.id;
         const targetLabel = d.target.label || d.target.id;
-        let status = d.isReciprocal 
-             ? `(Reciprocal Route: IDs ${d.RouteID} & ${d.otherRouteID})` 
-             : `(One-Way Route: ID ${d.RouteID})`;
         
-        // Minor change to tooltip to show both IDs for reciprocal routes
-        if (!d.isReciprocal && d.source.id > d.target.id && d.otherRouteID) {
-            // This handles the case where the one-way link is the second in the pair, 
-            // but for the tooltip, we still use the route's own ID.
-            status = `(One-Way Route: ID ${d.RouteID})`;
+        let status;
+        if (d.isReciprocal) {
+             // CHANGE: Ensure correct display of IDs in the tooltip for reciprocal routes
+             const idA = d.RouteID;
+             const idB = d.otherRouteID;
+             status = `(Reciprocal Route: IDs ${idA} & ${idB})`;
+        } else {
+             // Non-reciprocal route: only show its own ID
+             status = `(One-Way Route: ID ${d.RouteID})`;
         }
 
-        htmlContent = `<strong>Route ID: ${d.RouteID}</strong><br/>
+        htmlContent = `<strong>Route Details</strong><br/>
                        ${sourceLabel} → ${targetLabel} ${status}<br/>
                        Animals: ${d.Animals}`;
     }
