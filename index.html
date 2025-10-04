@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network - Curved Links Fixed</title>
+<title>Train Network - Disappearing Nodes</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
     body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
@@ -83,11 +83,10 @@
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // --- FIX: Correctly configured arrowhead marker ---
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead')
     .attr('viewBox', '-0 -5 10 10')
-    .attr('refX', 10) // Position arrow tip at the end of the line
+    .attr('refX', 10)
     .attr('refY', 0)
     .attr('markerWidth', 6)
     .attr('markerHeight', 6)
@@ -153,41 +152,41 @@
   link.on('mouseover', showTooltipLink).on('mousemove', moveTooltip).on('mouseout', hideTooltipLink);
   node.select('circle').on('mouseover', showTooltipNode).on('mousemove', moveTooltip).on('mouseout', hideTooltipNode);
 
-  // --- FIX: Re-implement curved path with correct end-points ---
   simulation.on('tick', () => {
     link.attr('d', d => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist === 0) return null;
-
         const rSource = rScale(d.source.degree);
         const rTarget = rScale(d.target.degree);
-        
-        // Calculate the point on the edge of the source circle
         const sx = d.source.x + (dx / dist) * rSource;
         const sy = d.source.y + (dy / dist) * rSource;
-        
-        // Calculate the point on the edge of the target circle
         const tx = d.target.x - (dx / dist) * rTarget;
         const ty = d.target.y - (dy / dist) * rTarget;
-
-        const dr = dist * 0.8; // Adjust this value for more or less curve
+        const dr = dist * 0.8;
         return `M${sx},${sy}A${dr},${dr} 0 0,1 ${tx},${ty}`;
     });
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
+  // --- UPDATED: Filter logic to make inactive elements disappear ---
   animalDropdown.on('change', function() {
     const selectedAnimal = this.value;
+    const duration = 300; // Animation duration in milliseconds
+
     if (selectedAnimal === 'all') {
-      link
-        .attr('stroke', '#999')
-        .attr('stroke-opacity', 1.0)
-        .attr('marker-end', 'url(#arrowhead)');
-      node.select('circle')
-        .attr('fill', '#3b82f6');
+      // Fade everything back in to full visibility
+      link.transition().duration(duration)
+        .style('opacity', 1.0)
+        .style('pointer-events', 'auto');
+      
+      node.transition().duration(duration)
+        .style('opacity', 1.0)
+        .style('pointer-events', 'auto');
+
     } else {
+      // Determine which nodes and links should be visible
       const activeLinks = links.filter(l => l.Animals === selectedAnimal);
       const connectedNodeIds = new Set();
       activeLinks.forEach(l => {
@@ -198,12 +197,15 @@
         if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
       });
 
-      link
-        .attr('stroke', d => activeLinks.includes(d) ? '#999' : '#e2e8f0')
-        .attr('stroke-opacity', d => activeLinks.includes(d) ? 1.0 : 0.7)
-        .attr('marker-end', d => activeLinks.includes(d) ? 'url(#arrowhead)' : 'none');
-      node.select('circle')
-        .attr('fill', d => connectedNodeIds.has(d.id) ? '#3b82f6' : '#cbd5e1');
+      // Fade links in or out based on whether they are active
+      link.transition().duration(duration)
+        .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
+        .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
+      
+      // Fade nodes in or out based on whether they are connected
+      node.transition().duration(duration)
+        .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0)
+        .style('pointer-events', d => connectedNodeIds.has(d.id) ? 'auto' : 'none');
     }
   });
 
@@ -217,4 +219,3 @@
 })();
 </script>
 </body>
-</html>
