@@ -522,7 +522,7 @@
       // 1. Reciprocal Section
       if (reciprocalAnimals.length > 0) {
           htmlContent += reciprocalAnimals.map(a => 
-              `<span class="green-text">${a.name} $\\leftrightarrow$</span>` 
+              `<span class="green-text">${a.name} $<-->$</span>` 
           ).join('<br/>') + '<br/>';
       }
 
@@ -532,8 +532,8 @@
           const oneWayList = oneWayAnimals.map(a => {
               // Determine the correct one-way symbol:
               let finalSymbol = (a.source === d.source.id && a.target === d.target.id) 
-                                ? '$\\rightarrow$' 
-                                : '$\\leftarrow$'; 
+                                ? '-->' 
+                                : '<--'; 
               
               return `<span class="red-text">${a.name} ${finalSymbol}</span>`;
           }).join('<br/>');
