@@ -13,20 +13,21 @@
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { font-size:12px; pointer-events:none; }
     .link { fill:none; cursor:pointer; }
-    /* Style for the link labels */
+    /* 👇 MODIFIED: Increased font size for link labels */
     .link-label text {
-        font-size: 10px;
-        fill: #333; /* Dark color for visibility */
-        pointer-events: none; /* Ignore mouse events */
-        text-shadow: 0 0 3px #fff, 0 0 3px #fff; /* White outline for contrast */
+        font-size: 11px; /* Bigger font */
+        font-weight: bold;
+        fill: #333; 
+        pointer-events: none; 
+        text-shadow: 0 0 4px #fff, 0 0 4px #fff; /* Thicker white outline */
     }
     .tooltip { 
         position:absolute; 
         background:rgba(0,0,0,0.8); 
         color:#fff; 
-        padding:6px 10px; 
+        padding:8px 12px; /* Slightly bigger padding */
         border-radius:4px; 
-        font-size:13px; 
+        font-size:14px; /* Slightly bigger font */
         pointer-events:none; 
         display:none; 
         line-height: 1.4;
@@ -85,19 +86,27 @@
   // LOGIC: Identify and flag reciprocal links
   const linkKeyMap = {};
   links.forEach(link => {
-      // Create the directional key for checking the reverse path (e.g., "CityA|CityB|Dog")
       const directionalKey = `${link.source}|${link.target}|${link.Animals}`;
       const reverseKey = `${link.target}|${link.source}|${link.Animals}`;
 
       if (linkKeyMap[reverseKey]) {
-          // A reciprocal link was found! Mark both the current link and the stored reverse link.
           link.isReciprocal = true;
           linkKeyMap[reverseKey].isReciprocal = true;
       }
       
-      // Store the link itself using the directional key
       linkKeyMap[directionalKey] = link;
   });
+
+  // 👇 NEW: Filter links for unique reciprocal label display
+  const labeledLinks = links.filter(d => {
+      if (d.isReciprocal) {
+          // For reciprocal links, only keep the one where source < target alphabetically
+          const [cityA, cityB] = [d.source, d.target].sort();
+          return d.source === cityA;
+      }
+      return true; // Keep all one-way links
+  });
+  // 👆 END NEW
 
   // --- Dropdown Population ---
   const animalSet = new Set();
@@ -122,7 +131,7 @@
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // NEW: Define two distinct arrowheads for coloring
+  // Define arrowheads
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead-green')
     .attr('viewBox', '-0 -5 10 10')
@@ -150,8 +159,8 @@
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([6, 24]);
 
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8)) // Longer link distance (200)
-    .force('charge', d3.forceManyBody().strength(-150)) // Reduced repulsion
+    .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8)) 
+    .force('charge', d3.forceManyBody().strength(-150)) 
     .force('center', d3.forceCenter(width/2, height/2))
     .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
 
@@ -165,10 +174,10 @@
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)');
 
-  // 👇 NEW: Link Label Group
+  // --- Link Label Group (using filtered data) ---
   const linkLabel = svg.append('g').attr('class', 'link-labels')
     .selectAll('g')
-    .data(links)
+    .data(labeledLinks) // 👈 Use filtered list
     .join('g')
     .attr('class', 'link-label');
 
@@ -176,7 +185,6 @@
     .attr('dy', -3) // slight vertical offset from the line
     .attr('text-anchor', 'middle')
     .text(d => d.Animals); 
-  // 👆 END NEW
 
   const node = svg.append('g').attr('class', 'nodes')
     .selectAll('g')
@@ -199,29 +207,74 @@
     .attr('y', 4);
 
   const tooltip = d3.select('#tooltip');
+  let currentTooltipData = null; // Tracks the currently displayed data object
+
   function showTooltipLink(event, d) {
     const sourceLabel = d.source.label || d.source.id;
     const targetLabel = d.target.label || d.target.id;
     const status = d.isReciprocal ? ' (Reciprocal Route)' : ' (One-Way Route)';
     
-    // Include RouteID in the tooltip
+    // Check if the same link was clicked again to dismiss
+    if (currentTooltipData === d) {
+        tooltip.style('display', 'none');
+        currentTooltipData = null;
+        return;
+    }
+    
     tooltip.style('display', 'block')
       .html(`<strong>Route ID: ${d.RouteID}</strong><br/>
              ${sourceLabel} → ${targetLabel}${status}<br/>
              Animals: ${d.Animals}`);
+             
+    tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px');
+    currentTooltipData = d;
   }
+  
   function showTooltipNode(event, d) {
+    // Check if the same node was clicked again to dismiss
+    if (currentTooltipData === d) {
+        tooltip.style('display', 'none');
+        d3.select(event.currentTarget).attr('stroke', '#fff').attr('stroke-width', 1.5);
+        currentTooltipData = null;
+        return;
+    }
+    
     tooltip.style('display', 'block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
     d3.select(event.currentTarget).attr('stroke', '#000').attr('stroke-width', 2);
+    
+    tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px');
+    currentTooltipData = d;
   }
-  function moveTooltip(event) { tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); }
-  function hideTooltipLink() { tooltip.style('display', 'none'); }
-  function hideTooltipNode(event, d) { 
-    tooltip.style('display', 'none'); 
-    d3.select(event.currentTarget).attr('stroke', '#fff').attr('stroke-width', 1.5); 
+  
+  // 👇 MODIFIED: Change event listeners from mouseover/out to click
+  link.on('click', showTooltipLink);
+  node.select('circle').on('click', showTooltipNode);
+  // 👆 END MODIFIED
+
+  // Attach mousemove only to move the tooltip after it's been displayed by a click
+  // This is a minimal implementation of tooltip movement after a click.
+  // Note: A standard D3 force graph often ties movement to the drag of nodes.
+  // For static content like links, it's better to calculate on click only.
+  // For this version, we'll keep the movement logic minimal:
+  function moveTooltip(event) {
+    if (currentTooltipData) {
+        tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); 
+    }
   }
-  link.on('mouseover', showTooltipLink).on('mousemove', moveTooltip).on('mouseout', hideTooltipLink);
-  node.select('circle').on('mouseover', showTooltipNode).on('mousemove', moveTooltip).on('mouseout', hideTooltipNode);
+  link.on('mousemove', moveTooltip);
+  node.select('circle').on('mousemove', moveTooltip);
+
+  // Function to dismiss tooltip on any chart click not on a node or link
+  svg.on('click', () => {
+    // Check if the click event originated from the SVG canvas itself
+    if (d3.event.target.tagName === 'svg') {
+        tooltip.style('display', 'none');
+        // Reset node circles stroke in case a node was selected
+        node.select('circle').attr('stroke', '#fff').attr('stroke-width', 1.5);
+        currentTooltipData = null;
+    }
+  });
+
 
   simulation.on('tick', () => {
     link.attr('d', d => {
@@ -236,7 +289,6 @@
         const tx = d.target.x - (dx / dist) * rTarget;
         const ty = d.target.y - (dy / dist) * rTarget;
         
-        // Arc radius is calculated relative to distance
         const dr = d.isReciprocal ? dist * 0.8 : dist * 0.8;
         
         // Logic to separate reciprocal arcs:
@@ -246,12 +298,11 @@
         );
         let arcFlag = 0;
         if (allLinksBetween.length > 1) {
-             // Find the index of the current link among the two reciprocal links
              const indexInFiltered = allLinksBetween.findIndex(l => l.source.id === d.source.id && l.target.id === d.target.id);
              if (indexInFiltered === 0) {
-                 arcFlag = 0; // Curve one way
+                 arcFlag = 0; 
              } else {
-                 arcFlag = 1; // Curve the other way
+                 arcFlag = 1; 
              }
         }
         d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
@@ -259,23 +310,20 @@
     });
     node.attr('transform', d => `translate(${d.x},${d.y})`);
 
-    // 👇 NEW: Update link label position
+    // 👇 MODIFIED: Update link label position (always horizontal)
     linkLabel.attr('transform', d => {
         // Calculate the midpoint of the link path
-        const path = link.filter(p => p === d).node();
+        // We look for the corresponding link path from the 'link' selection.
+        const path = link.filter(p => p.source.id === d.source.id && p.target.id === d.target.id && p.Animals === d.Animals).node();
         if (!path) return `translate(0, 0)`;
 
         const totalLength = path.getTotalLength();
         const point = path.getPointAtLength(totalLength / 2);
         
-        // Calculate the rotation angle (tangent at the midpoint)
-        const pointBefore = path.getPointAtLength(totalLength / 2 - 1);
-        const pointAfter = path.getPointAtLength(totalLength / 2 + 1);
-        const angle = Math.atan2(pointAfter.y - pointBefore.y, pointAfter.x - pointBefore.x) * (180 / Math.PI);
-        
-        return `translate(${point.x}, ${point.y}) rotate(${angle})`;
+        // Always return horizontal (no rotation applied)
+        return `translate(${point.x}, ${point.y})`;
     });
-    // 👆 END NEW
+    // 👆 END MODIFIED
   });
 
   // --- Filtering Logic (Combined Handler) ---
@@ -283,31 +331,34 @@
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
-    const duration = 300; // Animation duration in milliseconds
+    const duration = 300; 
 
     let activeLinks = links;
+    let activeLabeledLinks = labeledLinks;
     let connectedNodeIds = new Set();
     
     // 1. Apply Animal Filter
     if (selectedAnimal !== 'all') {
         activeLinks = activeLinks.filter(l => l.Animals === selectedAnimal);
+        activeLabeledLinks = activeLabeledLinks.filter(l => l.Animals === selectedAnimal);
     }
     
     // 2. Apply City Filter
     if (selectedCity !== 'all') {
-        // Filter links that start or end at the selected city
         const cityLinks = links.filter(l => 
             (l.source.id === selectedCity || l.target.id === selectedCity)
         );
         
-        // If an animal filter is also active, only show the intersection of both filters
         if (selectedAnimal !== 'all') {
             activeLinks = cityLinks.filter(l => l.Animals === selectedAnimal);
         } else {
             activeLinks = cityLinks;
         }
+        
+        activeLabeledLinks = activeLabeledLinks.filter(l => 
+            (l.source.id === selectedCity || l.target.id === selectedCity)
+        );
 
-        // Identify nodes: the selected city and all connected neighbors
         connectedNodeIds.add(selectedCity);
         activeLinks.forEach(l => {
             connectedNodeIds.add(l.source.id);
@@ -315,7 +366,6 @@
         });
 
     } else if (selectedAnimal !== 'all') {
-         // Only animal filter is active - calculate connected nodes based on activeLinks from animal filter
          activeLinks.forEach(l => {
             connectedNodeIds.add(l.source.id);
             connectedNodeIds.add(l.target.id);
@@ -334,10 +384,10 @@
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
     
-    // 👇 NEW: Transition link labels
+    // Transition link labels
     linkLabel.transition().duration(duration)
-      .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
-      .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
+      .style('opacity', d => activeLabeledLinks.includes(d) ? 1.0 : 0)
+      .style('pointer-events', d => activeLabeledLinks.includes(d) ? 'auto' : 'none');
 
     // Transition nodes
     node.transition().duration(duration)
