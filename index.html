@@ -24,7 +24,7 @@
 
 <script>
 
-// Google Sheets CSV URLs (publish your sheet as CSV first)
+// Google Sheets CSV URLs (publish each sheet as CSV)
 const citiesCSV = "https://docs.google.com/spreadsheets/d/e/1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc/pub?gid=0&single=true&output=csv";
 const routesCSV = "https://docs.google.com/spreadsheets/d/e/1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc/pub?gid=1&single=true&output=csv";
 
@@ -33,32 +33,32 @@ Promise.all([
   d3.csv(routesCSV)
 ]).then(([cities, routes]) => {
 
-  // Process nodes
+  // Ensure headers: CityName, HouseAnimals and FromCity, ToCity, Animals
   const nodes = {};
   cities.forEach(c => {
-    nodes[c.CityName] = { id: c.CityName, animals: c.HouseAnimals.split(",") };
+    // Split HouseAnimals by comma, trim whitespace
+    nodes[c.CityName] = { id: c.CityName, animals: c.HouseAnimals.split(",").map(a => a.trim()) };
   });
 
-  // Process links
   const links = routes.map(r => ({
     source: r.FromCity,
     target: r.ToCity,
-    animals: r.Animals.split(",")
+    animals: r.Animals.split(",").map(a => a.trim())
   }));
 
-  // Compute node degree for sizing
+  // Node degree
   Object.values(nodes).forEach(n => {
     n.degree = links.filter(l => l.source === n.id || l.target === n.id).length;
   });
 
-  // Setup SVG
   const width = window.innerWidth - 220;
   const height = window.innerHeight;
-  const svg = d3.select("#graph").append("svg")
-                .attr("width", width)
-                .attr("height", height);
 
-  // Arrowhead definition
+  const svg = d3.select("#graph").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  // Arrowhead
   svg.append("defs").append("marker")
     .attr("id", "arrowhead")
     .attr("viewBox", "-0 -5 10 10")
@@ -114,10 +114,10 @@ Promise.all([
     node.attr("transform", d => `translate(${d.x},${d.y})`);
   });
 
-  // Filtering
+  // Filter
   d3.selectAll("#sidebar input[type=checkbox]").on("change", () => {
     const selectedAnimals = Array.from(document.querySelectorAll("#sidebar input[type=checkbox]:checked")).map(d => d.value);
-    
+
     node.classed("hidden", d => !d.animals.some(a => selectedAnimals.includes(a)));
     link.classed("hidden", d => !d.animals.some(a => selectedAnimals.includes(a)));
   });
