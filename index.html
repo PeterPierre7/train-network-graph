@@ -2,52 +2,23 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Train Network Graph with Animal Filter and Link-Based Node Size</title>
+  <title>Train Network Graph Filtered by Animal</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     
-    /* Flex layout: sidebar + chart */
-    #layout {
-      display: flex;
-      height: 100vh;
-      width: 100vw;
-      margin: 0;
-    }
+    #layout { display: flex; height: 100vh; width: 100vw; margin: 0; }
+    #controls { width: 220px; background: #f8f9fa; padding: 15px; border-right: 1px solid #ccc; box-sizing: border-box; }
+    #chart { flex: 1; height: 100vh; }
 
-    /* Sidebar controls */
-    #controls {
-      width: 220px;
-      background: #f8f9fa;
-      padding: 15px;
-      border-right: 1px solid #ccc;
-      box-sizing: border-box;
-    }
-
-    /* Chart area fills remaining space */
-    #chart {
-      flex: 1;
-      height: 100vh;
-    }
-
-    .link { stroke: #999; stroke-opacity: 0.6; }
+    .link { stroke: #999; stroke-opacity: 0.6; cursor: pointer; }
     .node { stroke: #fff; stroke-width: 1.2px; cursor: pointer; }
-    .tooltip {
-      position: absolute;
-      background: rgba(0,0,0,0.8);
-      color: #fff;
-      padding: 6px 8px;
-      border-radius: 4px;
-      font-size: 13px;
-      pointer-events: none;
-      display: none;
-    }
+    .tooltip { position: absolute; background: rgba(0,0,0,0.8); color: #fff; padding: 6px 8px; border-radius: 4px; font-size: 13px; pointer-events: none; display: none; }
   </style>
 </head>
 <body>
 
 <div id="layout">
-  <!-- Sidebar with filter -->
   <div id="controls">
     <h3>Filter</h3>
     <label for="animalFilter">Animal:</label>
@@ -56,7 +27,6 @@
     </select>
   </div>
 
-  <!-- Chart container -->
   <div id="chart"></div>
 </div>
 
@@ -66,7 +36,6 @@
 <script>
 (async function(){
   const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
-
   const nodesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const linksUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
 
@@ -87,7 +56,7 @@
     Animals: d.Animals || ''
   }));
 
-  // Calculate degree (number of connections) for each node
+  // Degree calculation
   nodes.forEach(n => n.degree = 0);
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
@@ -96,7 +65,7 @@
     if (t) t.degree += 1;
   });
 
-  // Populate animal filter dropdown
+  // Populate animal dropdown
   const animalSet = new Set();
   links.forEach(l => {
     if(l.Animals){
@@ -109,14 +78,11 @@
     animalDropdown.append('option').attr('value', a).text(a);
   });
 
-  // Create SVG
+  // SVG setup
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
   const height = container.node().clientHeight;
-
-  const svg = container.append('svg')
-    .attr('width', width)
-    .attr('height', height);
+  const svg = container.append('svg').attr('width', width).attr('height', height);
 
   const degreeExtent = d3.extent(nodes, d => d.degree);
   const rScale = d3.scaleSqrt().domain(degreeExtent).range([6, 24]);
@@ -141,18 +107,15 @@
   let node = svg.append('g').attr('class','nodes').selectAll('g')
     .data(nodes).join('g')
     .call(d3.drag()
-      .on('start', (event,d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on('drag', (event,d) => { d.fx = event.x; d.fy = event.y; })
-      .on('end', (event,d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+      .on('start', (event,d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag', (event,d) => { d.fx=event.x; d.fy=event.y; })
+      .on('end', (event,d) => { if (!event.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
     );
 
   node.append('circle')
     .attr('r', d => rScale(d.degree))
     .attr('class','node')
-    .attr('fill', '#3b82f6')
-    .on('mouseover', (event,d) => showTooltip(event,d))
-    .on('mousemove', (event,d) => moveTooltip(event))
-    .on('mouseout', hideTooltip);
+    .attr('fill', '#3b82f6');
 
   node.append('text')
     .text(d => d.label)
@@ -161,21 +124,29 @@
     .style('font-size','12px');
 
   const tooltip = d3.select('#tooltip');
-  function showTooltip(event,d){ tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}`); d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);}
-  function moveTooltip(event){ tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); }
+
+  function showTooltipLink(event,d){
+    tooltip.style('display','block').html(`<strong>${d.source.label} → ${d.target.label}</strong><br/>Animals: ${d.Animals}`);
+    d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',2);
+  }
+  function showTooltipNode(event,d){
+    tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}`);
+    d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);
+  }
+  function moveTooltip(event){ tooltip.style('left',(event.pageX+12)+'px').style('top',(event.pageY+12)+'px'); }
   function hideTooltip(event,d){ tooltip.style('display','none'); d3.select(event.currentTarget).attr('stroke','#fff').attr('stroke-width',1.2); }
 
-  simulation.on('tick', () => {
-    link.attr('x1', d => d.source.x)
-        .attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x)
-        .attr('y2', d => d.target.y);
+  link.on('mouseover', showTooltipLink).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
+  node.select('circle').on('mouseover', showTooltipNode).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
 
+  simulation.on('tick', () => {
+    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Filter function based on selected animal
-  animalDropdown.on('change', function() {
+  // Animal filter: show only routes containing the selected animal
+  animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
 
     let filteredLinks;
@@ -185,6 +156,7 @@
       filteredLinks = links;
     }
 
+    // Only show nodes connected by filtered links
     const connectedNodeIds = new Set();
     filteredLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
     const filteredNodes = nodes.filter(n => connectedNodeIds.has(n.id));
@@ -194,26 +166,29 @@
     simulation.alpha(0.5).restart();
 
     link = svg.select('g.links').selectAll('line')
-      .data(filteredLinks, d => d.source + '-' + d.target)
+      .data(filteredLinks, d => d.source.id+'-'+d.target.id)
       .join('line')
       .attr('class','link')
-      .attr('stroke-width', d => linkWidth(d.weight));
+      .attr('stroke-width', d => linkWidth(d.weight))
+      .on('mouseover', showTooltipLink)
+      .on('mousemove', moveTooltip)
+      .on('mouseout', hideTooltip);
 
     node = svg.select('g.nodes').selectAll('g')
       .data(filteredNodes, d => d.id)
       .join('g')
       .call(d3.drag()
-        .on('start', (event,d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-        .on('drag', (event,d) => { d.fx = event.x; d.fy = event.y; })
-        .on('end', (event,d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+        .on('start', (event,d) => { if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+        .on('drag', (event,d) => { d.fx=event.x; d.fy=event.y; })
+        .on('end', (event,d) => { if(!event.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
       );
 
     node.append('circle')
       .attr('r', d => rScale(d.degree))
       .attr('class','node')
       .attr('fill', '#3b82f6')
-      .on('mouseover', (event,d) => showTooltip(event,d))
-      .on('mousemove', (event,d) => moveTooltip(event))
+      .on('mouseover', showTooltipNode)
+      .on('mousemove', moveTooltip)
       .on('mouseout', hideTooltip);
 
     node.append('text')
@@ -227,12 +202,11 @@
   window.addEventListener('resize', () => {
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
-    simulation.force('center', d3.forceCenter(w/2, h/2));
+    simulation.force('center', d3.forceCenter(w/2,h/2));
     simulation.alpha(0.3).restart();
   });
 
 })();
 </script>
-
 </body>
 </html>
