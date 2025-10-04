@@ -11,7 +11,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 #chart { flex:1; height:100vh; }
 .node circle { stroke:#fff; stroke-width:1.2px; cursor:pointer; }
 .node text { font-size:12px; pointer-events:none; }
-.link { fill:none; stroke-opacity:0.6; cursor:pointer; }
+.link { fill:none; stroke-opacity:0.8; cursor:pointer; }
 .tooltip { position:absolute; background:rgba(0,0,0,0.8); color:#fff; padding:6px 8px; border-radius:4px; font-size:13px; pointer-events:none; display:none; }
 </style>
 </head>
@@ -33,7 +33,6 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 <script>
 (async function(){
 
-  // --- Google Sheet ID ---
   const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
   const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
@@ -53,7 +52,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     Animals: d.Animals
   }));
 
-  // compute degree
+  // Compute degree
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
     const t = nodes.find(n => n.id === l.target);
@@ -61,7 +60,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     if(t) t.degree += 1;
   });
 
-  // --- Animal dropdown ---
+  // Animal dropdown
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -75,17 +74,18 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // --- Arrowhead definition ---
+  // Arrowhead
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead')
-    .attr('viewBox', '0 -3 6 6') // smaller arrow
-    .attr('refX', 10) // offset from node
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 15)
     .attr('refY', 0)
-    .attr('markerWidth', 5)
-    .attr('markerHeight', 5)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
     .attr('orient', 'auto')
+    .attr('markerUnits', 'userSpaceOnUse')
     .append('path')
-    .attr('d', 'M0,-3L6,0L0,3')
+    .attr('d', 'M0,-5L10,0L0,5')
     .attr('fill', '#999');
 
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes,d=>d.degree)).range([6,24]);
@@ -101,9 +101,9 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     .data(links)
     .join('path')
     .attr('class','link')
-    .attr('stroke-width', 4) // thicker links
+    .attr('stroke-width', 5)
     .attr('stroke', '#999')
-    .attr('marker-end', 'url(#arrowhead)'); // always present
+    .attr('marker-end', 'url(#arrowhead)');
 
   const node = svg.append('g').attr('class','nodes')
     .selectAll('g')
@@ -141,18 +141,26 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 
   simulation.on('tick', ()=>{
     link.attr('d', d => {
+      // offset start/end by node radius
       const dx = d.target.x - d.source.x;
       const dy = d.target.y - d.source.y;
-      const dr = Math.sqrt(dx*dx + dy*dy);
-      return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const rSource = rScale(nodes.find(n=>n.id===d.source.id).degree);
+      const rTarget = rScale(nodes.find(n=>n.id===d.target.id).degree);
+      const ratioSource = rSource / dist;
+      const ratioTarget = rTarget / dist;
+      const sx = d.source.x + dx*ratioSource;
+      const sy = d.source.y + dy*ratioSource;
+      const tx = d.target.x - dx*ratioTarget;
+      const ty = d.target.y - dy*ratioTarget;
+      const dr = dist*0.8; // curve radius
+      return `M${sx},${sy}A${dr},${dr} 0 0,1 ${tx},${ty}`;
     });
     node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
 
-  // --- Filter logic ---
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
-
     const activeLinks = selectedAnimal 
       ? links.filter(l => l.Animals === selectedAnimal)
       : links;
@@ -160,17 +168,12 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     const connectedNodeIds = new Set();
     activeLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
 
-    // include cities that have the animal in HouseAnimals
-    nodes.forEach(n => {
-      if(selectedAnimal && n.animals.includes(selectedAnimal)) {
-        connectedNodeIds.add(n.id);
-      }
-    });
+    nodes.forEach(n => { if(selectedAnimal && n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); });
 
     link
       .attr('stroke', d => activeLinks.includes(d) ? '#999' : '#ccc')
       .attr('stroke-opacity', d => activeLinks.includes(d) ? 0.8 : 0.1)
-      .attr('marker-end', 'url(#arrowhead)'); // always keep arrow
+      .attr('marker-end', 'url(#arrowhead)'); // always keep marker
 
     node.select('circle').attr('fill', d => connectedNodeIds.has(d.id) ? '#3b82f6' : '#aaa');
   });
