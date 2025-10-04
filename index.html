@@ -134,10 +134,9 @@
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // 👇 NEW: Create a main 'g' element for all graph elements to be zoomed/panned
   const g = svg.append('g'); 
 
-  // Define arrowheads (moved to g for them to be zoomed with the rest)
+  // Define arrowheads
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green')
     .attr('viewBox', '-0 -5 10 10')
@@ -162,7 +161,10 @@
     .attr('d', 'M0,-5L10,0L0,5')
     .attr('fill', 'red');
 
-  const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([6, 24]);
+  // 👇 MODIFIED: Changed the starting range of the radius scale from 6 to 12.
+  // The scale now ranges from 12px (min degree) to 24px (max degree).
+  const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
+  // 👆 END MODIFIED
 
   const simulation = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8)) 
@@ -170,7 +172,7 @@
     .force('center', d3.forceCenter(width/2, height/2))
     .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
 
-  // --- Link Path Drawing Group (appended to g) ---
+  // --- Link Path Drawing Group ---
   const link = g.append('g').attr('class', 'links')
     .selectAll('path')
     .data(links)
@@ -180,7 +182,7 @@
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)');
 
-  // --- Link Label Group (appended to g) ---
+  // --- Link Label Group ---
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g')
     .data(labeledLinks)
@@ -192,7 +194,7 @@
     .attr('text-anchor', 'middle')
     .text(d => d.Animals); 
 
-  // --- Node Group (appended to g) ---
+  // --- Node Group ---
   const node = g.append('g').attr('class', 'nodes')
     .selectAll('g')
     .data(nodes)
@@ -205,7 +207,6 @@
       })
       .on('drag', (event,d) => { 
           d.fx=event.x; d.fy=event.y; 
-          // Disable D3's drag while zooming/panning
           d3.select(this).attr("transform", `translate(${d.fx},${d.fy})`);
       })
       .on('end', (event,d) => { 
@@ -218,19 +219,16 @@
     .attr('r', d => rScale(d.degree))
     .attr('fill', '#3b82f6');
 
-  // 👇 MODIFIED: Text position centered (x=0, y=0) because we use CSS for centering
   node.append('text')
     .text(d => d.label)
     .attr('x', 0)
     .attr('y', 0);
-  // 👆 END MODIFIED
 
   // --- Zoom Logic ---
   const zoom = d3.zoom()
-      .scaleExtent([0.1, 4]) // Min zoom 10%, Max zoom 400%
+      .scaleExtent([0.1, 4]) 
       .on('zoom', (event) => {
           g.attr('transform', event.transform);
-          // Need to call moveTooltip to update the tooltip position during zoom
           if (currentTooltipLock || d3.select('#tooltip').style('display') === 'block') {
              moveTooltip(event);
           }
@@ -330,19 +328,13 @@
       }
   }
 
-  // 👇 MODIFIED: Function to calculate tooltip position accounting for zoom/pan
   function moveTooltip(event) {
-    // Get the current transformation state (zoom/pan)
-    const transform = d3.zoomTransform(svg.node());
-    
-    // Convert screen coordinates to coordinates relative to the zoomed SVG content
     const x = event.sourceEvent ? event.sourceEvent.pageX : event.pageX;
     const y = event.sourceEvent ? event.sourceEvent.pageY : event.pageY;
 
     tooltip.style('left', (x + 12) + 'px')
            .style('top', (y + 12) + 'px'); 
   }
-  // 👆 END MODIFIED
 
   // --- Event Listeners ---
   
@@ -357,9 +349,7 @@
       .on('mouseout', function(event, d) { handleNodeMouseOut(event, d, this); })
       .on('click', function(event, d) { handleNodeInteraction(event, d, this); });
 
-  // Function to dismiss any lock on chart background click
   svg.on('click', (event) => {
-    // Check if the click event originated from the SVG canvas itself
     if (event.target.tagName === 'svg' || event.target.tagName === 'rect' && d3.select(event.target).attr('class') === 'overlay') {
         dismissLock();
         tooltip.style('display', 'none');
