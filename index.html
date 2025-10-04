@@ -33,7 +33,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 <script>
 (async function(){
 
-  // --- Replace with your Google Sheet ID ---
+  // --- Google Sheet ID ---
   const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
   const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
@@ -79,7 +79,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead')
     .attr('viewBox', '0 -3 6 6') // smaller arrow
-    .attr('refX', 10) // move slightly away from node
+    .attr('refX', 10) // offset from node
     .attr('refY', 0)
     .attr('markerWidth', 5)
     .attr('markerHeight', 5)
@@ -103,7 +103,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     .attr('class','link')
     .attr('stroke-width', 4) // thicker links
     .attr('stroke', '#999')
-    .attr('marker-end', 'url(#arrowhead)');
+    .attr('marker-end', 'url(#arrowhead)'); // always present
 
   const node = svg.append('g').attr('class','nodes')
     .selectAll('g')
@@ -167,9 +167,10 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
       }
     });
 
-    link.attr('stroke', d => activeLinks.includes(d) ? '#999' : '#ccc')
-        .attr('stroke-opacity', d => activeLinks.includes(d) ? 0.8 : 0.1)
-        .attr('marker-end', d => activeLinks.includes(d) ? 'url(#arrowhead)' : '');
+    link
+      .attr('stroke', d => activeLinks.includes(d) ? '#999' : '#ccc')
+      .attr('stroke-opacity', d => activeLinks.includes(d) ? 0.8 : 0.1)
+      .attr('marker-end', 'url(#arrowhead)'); // always keep arrow
 
     node.select('circle').attr('fill', d => connectedNodeIds.has(d.id) ? '#3b82f6' : '#aaa');
   });
@@ -177,11 +178,4 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   window.addEventListener('resize', ()=>{
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
-    simulation.force('center', d3.forceCenter(w/2,h/2));
-    simulation.alpha(0.3).restart();
-  });
-
-})();
-</script>
-</body>
-</html>
+    simulation.force('center', d3.forceCenter(w
