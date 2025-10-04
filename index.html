@@ -40,7 +40,6 @@
     .link-label text {
         /* NOTE: Font size set dynamically in updateNodeAndLinkStyles() */
         font-weight: bold;
-        fill: #333; 
         pointer-events: none; 
         text-shadow: 0 0 4px #fff, 0 0 4px #fff; 
     }
@@ -58,6 +57,8 @@
     .tooltip strong {
         color: #ffcc00; /* Highlight route title */
     }
+    .green-text { color: lightgreen; }
+    .red-text { color: red; }
     #mapToggle {
         padding: 8px 10px;
         margin-top: 10px;
@@ -105,7 +106,6 @@
 (async function(){
 
   const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
-  // *** FIXED URLS HERE ***
   const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
   
@@ -196,15 +196,15 @@
               source: l.isReciprocal ? sortedCities[0] : l.source,
               target: l.isReciprocal ? sortedCities[1] : l.target,
               isReciprocal: l.isReciprocal,
-              Animals: [l.Animals],
+              Animals: [{ name: l.Animals, status: animalsToStatus[l.Animals] }], // Store object for easy display
               routeIds: [l.RouteID],
               originalSource: l.source,
               originalTarget: l.target
           };
       } else {
           // Aggregate animal types and route IDs
-          if (!uniqueDisplayLinks[displayKey].Animals.includes(l.Animals)) {
-              uniqueDisplayLinks[displayKey].Animals.push(l.Animals);
+          if (!uniqueDisplayLinks[displayKey].Animals.some(a => a.name === l.Animals)) {
+              uniqueDisplayLinks[displayKey].Animals.push({ name: l.Animals, status: animalsToStatus[l.Animals] });
           }
           if (!uniqueDisplayLinks[displayKey].routeIds.includes(l.RouteID)) {
              uniqueDisplayLinks[displayKey].routeIds.push(l.RouteID);
@@ -424,6 +424,7 @@
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   
+  // NOTE: Red one-way links only use one arrowhead at the 'end'
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-red-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'red');
 
@@ -440,9 +441,15 @@
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // Link label shows the COUNT of aggregated Animal types
+  // Link label shows the summary of animal routes
   linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
-      .text(d => `${d.Animals.length} Animal${d.Animals.length > 1 ? 's' : ''}`); 
+      .html(d => {
+          return d.Animals.map(a => {
+              const direction = d.isReciprocal ? '↔' : '→';
+              const colorClass = d.isReciprocal ? 'green-text' : 'red-text';
+              return `<tspan class="${colorClass}">${a.name} ${direction}</tspan>`;
+          }).join(', ');
+      }); 
 
   // --- Node Group (Omitted for brevity) ---
   const node = g.append('g').attr('class', 'nodes')
@@ -511,9 +518,11 @@
         
         let status = d.isReciprocal ? 'Reciprocal (Two-way) - Green Line' : 'One-Way - Red Line';
         
-        let animalsList = d.Animals.map(animal => {
-            const animalStatus = animalsToStatus[animal]; // Get status for individual animal route
-            return `<span style="font-weight:bold;">${animal}</span> (${animalStatus})`;
+        let animalsList = d.Animals.map(a => {
+            const direction = d.isReciprocal ? '↔' : '→';
+            const statusText = d.isReciprocal ? 'Reciprocal' : 'One-way';
+            const colorClass = d.isReciprocal ? 'green-text' : 'red-text';
+            return `<span class="${colorClass}">${a.name} ${direction}</span> (${statusText})`;
         }).join('<br/>');
 
         htmlContent = `<strong>Aggregated Route</strong><br/>
@@ -650,7 +659,6 @@
     // Update link label position
     linkLabel.attr('transform', d => {
         // Use the path string stored on the data object
-        // NOTE: We must check if the pathString exists before attempting to get its length
         if (!d.pathString) return `translate(0, 0)`;
 
         const tempPath = d3.select(document.createElementNS(d3.namespaces.svg, 'path')).attr('d', d.pathString);
@@ -678,7 +686,7 @@
     
     // 1. Filter by Animal: Link must contain the selected animal in its aggregated list
     if (selectedAnimal !== 'all') {
-        activeLinks = activeLinks.filter(l => l.Animals.includes(selectedAnimal));
+        activeLinks = activeLinks.filter(l => l.Animals.some(a => a.name === selectedAnimal));
     }
 
     // 2. Filter by Reciprocal Status
@@ -700,7 +708,7 @@
         connectedNodeIds.add(l.target.id);
     });
 
-    // If no links are active, check if any nodes are active based on the city/animal filters alone
+    // If no links are active, ensure selected city and its animals are still visible.
     if (connectedNodeIds.size === 0) {
         if (selectedCity !== 'all') {
             connectedNodeIds.add(selectedCity);
@@ -712,6 +720,9 @@
             // Show all nodes if all filters are 'all' (default view)
             nodes.forEach(n => connectedNodeIds.add(n.id));
         }
+    } else if (selectedCity !== 'all' && !connectedNodeIds.has(selectedCity)) {
+        // Ensure the selected city is always visible even if its filtered links don't make it to the activeLinks list
+        connectedNodeIds.add(selectedCity);
     }
 
 
