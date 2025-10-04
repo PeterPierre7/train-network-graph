@@ -1,20 +1,19 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>Train Network Graph Filtered by Animal</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>
-    body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
-    
-    #layout { display: flex; height: 100vh; width: 100vw; margin: 0; }
-    #controls { width: 220px; background: #f8f9fa; padding: 15px; border-right: 1px solid #ccc; box-sizing: border-box; }
-    #chart { flex: 1; height: 100vh; }
-
-    .link { stroke: #999; stroke-opacity: 0.6; cursor: pointer; }
-    .node { stroke: #fff; stroke-width: 1.2px; cursor: pointer; }
-    .tooltip { position: absolute; background: rgba(0,0,0,0.8); color: #fff; padding: 6px 8px; border-radius: 4px; font-size: 13px; pointer-events: none; display: none; }
-  </style>
+<meta charset="utf-8">
+<title>Train Network with Animal Filter and Curved Links</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
+#layout { display:flex; height:100vh; width:100vw; margin:0; }
+#controls { width:220px; background:#f8f9fa; padding:15px; border-right:1px solid #ccc; box-sizing:border-box; }
+#chart { flex:1; height:100vh; }
+.node circle { stroke:#fff; stroke-width:1.2px; cursor:pointer; }
+.node text { font-size:12px; pointer-events:none; }
+.link { fill:none; stroke:#999; stroke-opacity:0.6; cursor:pointer; }
+.tooltip { position:absolute; background:rgba(0,0,0,0.8); color:#fff; padding:6px 8px; border-radius:4px; font-size:13px; pointer-events:none; display:none; }
+</style>
 </head>
 <body>
 
@@ -26,10 +25,8 @@
       <option value="">All animals</option>
     </select>
   </div>
-
   <div id="chart"></div>
 </div>
-
 <div class="tooltip" id="tooltip"></div>
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -44,9 +41,7 @@
   const nodes = nodesRaw.map(d => ({
     id: d.CityID,
     label: d.CityName || d.CityID,
-    lat: +(d.Latitude || 0),
-    lon: +(d.Longitude || 0),
-    visible: true
+    degree: 0
   }));
 
   const links = linksRaw.map(d => ({
@@ -57,64 +52,65 @@
     Animals: d.Animals || ''
   }));
 
-  // Populate animal dropdown
+  // calculate node degrees
+  links.forEach(l => {
+    const s = nodes.find(n => n.id === l.source);
+    const t = nodes.find(n => n.id === l.target);
+    if(s) s.degree += 1;
+    if(t) t.degree += 1;
+  });
+
+  // animal dropdown
   const animalSet = new Set();
   links.forEach(l => {
-    if(l.Animals){
-      l.Animals.split(',').forEach(a => animalSet.add(a.trim()));
-    }
+    if(l.Animals) l.Animals.split(',').forEach(a => animalSet.add(a.trim()));
   });
   const animalDropdown = d3.select('#animalFilter');
   Array.from(animalSet).sort().forEach(a => {
     animalDropdown.append('option').attr('value', a).text(a);
   });
 
-  // SVG setup
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  const degreeExtent = d3.extent(nodes, d => d.degree || 0);
-  const rScale = d3.scaleSqrt().domain([0,10]).range([6, 24]); // node radius
-
-  const weightExtent = d3.extent(links, d => d.weight);
-  const linkWidth = d3.scaleLinear().domain(weightExtent).range([1,6]);
-
-  const maxDist = d3.max(links, d => d.distance) || 1;
-  const distScale = d3.scaleLinear().domain([0, maxDist]).range([50, 300]);
+  const rScale = d3.scaleSqrt().domain(d3.extent(nodes,d=>d.degree)).range([6,24]);
+  const linkWidth = d3.scaleLinear().domain(d3.extent(links,d=>d.weight)).range([1,6]);
 
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.distance ? distScale(d.distance) : 120).strength(0.8))
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(120).strength(0.8))
     .force('charge', d3.forceManyBody().strength(-250))
-    .force('center', d3.forceCenter(width/2, height/2))
-    .force('collision', d3.forceCollide().radius(d => rScale(d.degree || 1)+4));
+    .force('center', d3.forceCenter(width/2,height/2))
+    .force('collision', d3.forceCollide().radius(d=>rScale(d.degree)+4));
 
-  let link = svg.append('g').attr('class','links').selectAll('line')
+  // curved links
+  const link = svg.append('g').attr('class','links')
+    .selectAll('path')
     .data(links)
-    .join('line')
+    .join('path')
     .attr('class','link')
     .attr('stroke-width', d => linkWidth(d.weight));
 
-  let node = svg.append('g').attr('class','nodes').selectAll('g')
+  const node = svg.append('g').attr('class','nodes')
+    .selectAll('g')
     .data(nodes)
     .join('g')
+    .attr('class','node')
     .call(d3.drag()
-      .on('start', (event,d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
-      .on('drag', (event,d) => { d.fx=event.x; d.fy=event.y; })
-      .on('end', (event,d) => { if (!event.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
+      .on('start',(event,d)=>{ if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',(event,d)=>{ d.fx=event.x; d.fy=event.y; })
+      .on('end',(event,d)=>{ if(!event.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
     );
 
   node.append('circle')
-    .attr('r', d => rScale(d.degree || 1))
-    .attr('class','node')
-    .attr('fill', '#3b82f6');
+    .attr('r', d => rScale(d.degree))
+    .attr('fill','#3b82f6');
 
   node.append('text')
     .text(d => d.label)
-    .attr('x', d => rScale(d.degree || 1)+4)
-    .attr('y', 4)
-    .style('font-size','12px');
+    .attr('x', d => rScale(d.degree)+4)
+    .attr('y', 4);
 
   const tooltip = d3.select('#tooltip');
   function showTooltipLink(event,d){
@@ -122,7 +118,7 @@
     d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',2);
   }
   function showTooltipNode(event,d){
-    tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree || 0}`);
+    tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}`);
     d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);
   }
   function moveTooltip(event){ tooltip.style('left',(event.pageX+12)+'px').style('top',(event.pageY+12)+'px'); }
@@ -131,38 +127,38 @@
   link.on('mouseover', showTooltipLink).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
   node.select('circle').on('mouseover', showTooltipNode).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
 
-  simulation.on('tick', () => {
-    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-
-    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  simulation.on('tick', ()=>{
+    // curved links using SVG path
+    link.attr('d', d => {
+      const dx = d.target.x - d.source.x;
+      const dy = d.target.y - d.source.y;
+      const dr = Math.sqrt(dx*dx + dy*dy);
+      return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+    });
+    node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
 
-  // Animal filter: hide only nodes not connected to filtered links
+  // Filter by animal: highlight only nodes connected to that animal, others dim
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
-
-    let filteredLinks;
-    if(selectedAnimal){
-      filteredLinks = links.filter(l => l.Animals && l.Animals.split(',').map(a=>a.trim()).includes(selectedAnimal));
-    } else {
-      filteredLinks = links;
-    }
+    const activeLinks = selectedAnimal 
+      ? links.filter(l => l.Animals.split(',').map(a=>a.trim()).includes(selectedAnimal)) 
+      : links;
 
     const connectedNodeIds = new Set();
-    filteredLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
+    activeLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
 
-    // Update link visibility
-    link.style('display', d => filteredLinks.includes(d) ? 'block' : 'none');
+    // update link visibility
+    link.attr('stroke-opacity', d => activeLinks.includes(d) ? 0.8 : 0.05);
+    link.attr('stroke', d => activeLinks.includes(d) ? '#999' : '#ccc');
 
-    // Update node visibility
-    node.style('display', d => connectedNodeIds.has(d.id) ? 'block' : 'none');
-
-    simulation.alpha(0.3).restart();
+    // update node appearance
+    node.select('circle')
+      .attr('fill', d => connectedNodeIds.has(d.id) ? '#3b82f6' : '#aaa')
+      .attr('r', d => rScale(d.degree));
   });
 
-  // Responsive
-  window.addEventListener('resize', () => {
+  window.addEventListener('resize', ()=>{
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
     simulation.force('center', d3.forceCenter(w/2,h/2));
