@@ -206,80 +206,134 @@
     .attr('y', 4);
 
   const tooltip = d3.select('#tooltip');
-  let currentTooltipNode = null; // Tracks the currently displayed node data object (for click-lock)
+  let currentTooltipLock = null; // Tracks the currently clicked/locked element (node or link)
 
-  // --- Tooltip Handlers ---
-  function showTooltipLinkHover(event, d) {
-    const sourceLabel = d.source.label || d.source.id;
-    const targetLabel = d.target.label || d.target.id;
-    const status = d.isReciprocal ? ' (Reciprocal Route)' : ' (One-Way Route)';
-    
-    // Only show if a node isn't currently locked
-    if (currentTooltipNode === null) {
-        tooltip.style('display', 'block')
-          .html(`<strong>Route ID: ${d.RouteID}</strong><br/>
-                 ${sourceLabel} → ${targetLabel}${status}<br/>
-                 Animals: ${d.Animals}`);
-        tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px');
-    }
+  function dismissLock() {
+      if (currentTooltipLock) {
+          // If the lock is a node, remove the stroke highlight
+          if (currentTooltipLock.id) {
+              node.select('circle').filter(n => n === currentTooltipLock)
+                   .attr('stroke', '#fff').attr('stroke-width', 1.5);
+          }
+          currentTooltipLock = null;
+      }
   }
 
-  function hideTooltipLinkHover() {
-      // Only hide if a node isn't currently locked
-      if (currentTooltipNode === null) {
+  function updateTooltip(event, d, isNode) {
+    let htmlContent;
+    
+    if (isNode) {
+        htmlContent = `<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`;
+    } else {
+        const sourceLabel = d.source.label || d.source.id;
+        const targetLabel = d.target.label || d.target.id;
+        const status = d.isReciprocal ? ' (Reciprocal Route)' : ' (One-Way Route)';
+        htmlContent = `<strong>Route ID: ${d.RouteID}</strong><br/>
+                       ${sourceLabel} → ${targetLabel}${status}<br/>
+                       Animals: ${d.Animals}`;
+    }
+
+    tooltip.style('display', 'block')
+           .html(htmlContent)
+           .style('left', (event.pageX + 12) + 'px')
+           .style('top', (event.pageY + 12) + 'px');
+  }
+
+  // --- Link Handlers (Hover/Click) ---
+  function handleLinkInteraction(event, d) {
+      if (currentTooltipLock && currentTooltipLock.id) {
+          // If a node is locked, we want to break the lock and display the link info
+          dismissLock();
+      }
+      
+      updateTooltip(event, d, false);
+      
+      if (currentTooltipLock === d) {
+          // If the link was already locked, unlock it and hide the tooltip
+          currentTooltipLock = null;
+          tooltip.style('display', 'none');
+      } else if (event.type === 'click') {
+          // Click: Set lock
+          currentTooltipLock = d;
+      }
+  }
+
+  function handleLinkMouseOut() {
+      // Hide tooltip only if no element is currently locked
+      if (currentTooltipLock === null) {
           tooltip.style('display', 'none');
       }
   }
   
-  function showTooltipNodeClick(event, d) {
-    // Check if the same node was clicked again to dismiss
-    if (currentTooltipNode === d) {
-        tooltip.style('display', 'none');
-        d3.select(event.currentTarget).attr('stroke', '#fff').attr('stroke-width', 1.5);
-        currentTooltipNode = null;
-        return;
-    }
-    
-    // Dismiss any previous node lock and set new lock
-    if (currentTooltipNode) {
-         node.select('circle').filter(n => n === currentTooltipNode)
-             .attr('stroke', '#fff').attr('stroke-width', 1.5);
-    }
-    
-    tooltip.style('display', 'block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
-    d3.select(event.currentTarget).attr('stroke', '#000').attr('stroke-width', 2);
-    
-    tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px');
-    currentTooltipNode = d;
+  // --- Node Handlers (Hover/Click) ---
+  function handleNodeInteraction(event, d, circleElement) {
+      if (currentTooltipLock && !currentTooltipLock.id) {
+          // If a link is locked, we want to break the lock and display the node info
+          dismissLock();
+      }
+      
+      // Remove highlight from previous node lock
+      if (currentTooltipLock && currentTooltipLock.id) {
+          node.select('circle').filter(n => n === currentTooltipLock)
+               .attr('stroke', '#fff').attr('stroke-width', 1.5);
+      }
+      
+      updateTooltip(event, d, true);
+      
+      if (currentTooltipLock === d) {
+          // If the node was already locked, unlock it and hide the tooltip
+          d3.select(circleElement).attr('stroke', '#fff').attr('stroke-width', 1.5);
+          currentTooltipLock = null;
+          tooltip.style('display', 'none');
+      } else if (event.type === 'click') {
+          // Click: Set lock and highlight
+          currentTooltipLock = d;
+          d3.select(circleElement).attr('stroke', '#000').attr('stroke-width', 2);
+      } else if (event.type === 'mouseover') {
+          // Mouseover: Highlight only if not currently locked
+          if (currentTooltipLock !== d) {
+             d3.select(circleElement).attr('stroke', '#000').attr('stroke-width', 2);
+          }
+      }
   }
-  
+
+  function handleNodeMouseOut(event, d, circleElement) {
+      // If the node is NOT the currently locked one, remove its hover highlight
+      if (currentTooltipLock !== d) {
+          d3.select(circleElement).attr('stroke', '#fff').attr('stroke-width', 1.5);
+      }
+      
+      // Hide tooltip only if no element is currently locked
+      if (currentTooltipLock === null) {
+          tooltip.style('display', 'none');
+      }
+  }
+
   function moveTooltip(event) {
-    // Move the tooltip regardless of whether it was opened by hover (link) or click (node)
-    tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); 
+    // Keep the tooltip positioned correctly while mouse moves
+    tooltip.style('left', (event.pageX + 12) + 'px')
+           .style('top', (event.pageY + 12) + 'px'); 
   }
 
   // --- Event Listeners ---
   
-  // Links: Hover to show details (new behavior)
-  link.on('mouseover', showTooltipLinkHover)
+  // Links: Hover/Click interaction
+  link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
       .on('mousemove', moveTooltip)
-      .on('mouseout', hideTooltipLinkHover);
-  
-  // Nodes: Click to show/dismiss details (retained behavior)
-  node.select('circle').on('click', showTooltipNodeClick);
-  // Mousemove on nodes to update tooltip position if a node is clicked/locked
-  node.select('circle').on('mousemove', moveTooltip);
+      .on('mouseout', handleLinkMouseOut)
+      .on('click', function(event, d) { handleLinkInteraction(event, d); });
 
-  // Function to dismiss node-lock and clear tooltip on chart click
+  // Nodes: Hover/Click interaction
+  node.select('circle')
+      .on('mouseover', function(event, d) { handleNodeInteraction(event, d, this); })
+      .on('mousemove', moveTooltip)
+      .on('mouseout', function(event, d) { handleNodeMouseOut(event, d, this); })
+      .on('click', function(event, d) { handleNodeInteraction(event, d, this); });
+
+  // Function to dismiss any lock on chart background click
   svg.on('click', (event) => {
-    // Check if the click event originated from the SVG canvas itself (not a node/link)
     if (event.target.tagName === 'svg') {
-        if (currentTooltipNode) {
-            // Dismiss node lock
-            node.select('circle').filter(n => n === currentTooltipNode)
-                 .attr('stroke', '#fff').attr('stroke-width', 1.5);
-            currentTooltipNode = null;
-        }
+        dismissLock();
         tooltip.style('display', 'none');
     }
   });
