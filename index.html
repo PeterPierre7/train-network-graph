@@ -35,9 +35,14 @@
     }
     .link { fill:none; cursor:pointer; }
     
-    .link-label { 
-        /* Ensure link label is not drawn */
-        display: none; 
+    /* *** MODIFIED STYLE: Make link labels visible and style them *** */
+    .link-label text { 
+        font-size: 8px; /* Small font size for links */
+        fill: #000; 
+        pointer-events: none; /* Crucial: allows clicking on the link path underneath */
+        text-anchor: middle;
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; 
+        font-weight: bold;
     }
 
     .tooltip { 
@@ -214,7 +219,9 @@
               target: l.target,
               isReciprocal: l.isReciprocal,
               cityPair: canonicalCityPair, 
-              directionKey: l.source + '->' + l.target
+              directionKey: l.source + '->' + l.target,
+              // *** NEW: Store the primary animal for the permanent label ***
+              displayAnimal: l.Animals // Use the animal from the first found link for this visual path
           };
       }
   });
@@ -368,6 +375,17 @@
       node.select('text').style('font-size', d => {
           return isMapMode ? `${cityLabelSizeMap}px` : `${cityLabelSizeAbstract}px`;
       });
+      
+      // *** NEW: Update link label size with zoom/layout ***
+      linkLabel.select('text').style('font-size', d => {
+          if (isMapMode) {
+              const scaleRatio = Math.max(mapMinScaleRatio, Math.min(mapMaxScaleRatio, 1 / Math.sqrt(transform.k)));
+              return `${8 * scaleRatio}px`;
+          } else {
+              return '8px';
+          }
+      });
+
 
       if (!isMapMode && simulation.force('collision')) {
           simulation.force('collision').radius(d => rScaleAbstract(d.degree) + originalCollisionRadius);
@@ -423,7 +441,7 @@
       }
   });
 
-  // Define arrowheads (omitted for brevity)
+  // Define arrowheads 
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green-start').attr('viewBox', '-0 -5 10 10').attr('refX', -10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   g.append('defs').append('marker')
@@ -440,11 +458,14 @@
     .attr('marker-start', d => d.isReciprocal ? 'url(#arrowhead-green-start)' : null)
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green-end)' : 'url(#arrowhead-red-end)');
 
-  // --- Link Label Group (Kept empty/hidden) ---
+  // --- Link Label Group: NOW VISIBLE AND FUNCTIONAL ---
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  linkLabel.append('text'); 
+  // *** NEW: Add text element for the label and set its content ***
+  linkLabel.append('text')
+    .text(d => d.displayAnimal);
+
 
   // --- Node Group (omitted for brevity) ---
   const node = g.append('g').attr('class', 'nodes')
@@ -503,7 +524,7 @@
       }
   }
   
-  // Function to create the aggregated tooltip content (omitted for brevity)
+  // Function to create the aggregated tooltip content (FIXED)
   function getLinkTooltipContent(d) {
       const cityPair = d.cityPair; 
       const allAnimals = aggregatedAnimals[cityPair] || [];
@@ -522,7 +543,7 @@
       // 1. Reciprocal Section
       if (reciprocalAnimals.length > 0) {
           htmlContent += reciprocalAnimals.map(a => 
-              `<span class="green-text">${a.name} $<-->$</span>` 
+              `<span class="green-text">${a.name} $\\leftrightarrow$</span>` 
           ).join('<br/>') + '<br/>';
       }
 
@@ -530,10 +551,16 @@
       if (oneWayAnimals.length > 0) {
           
           const oneWayList = oneWayAnimals.map(a => {
-              // Determine the correct one-way symbol:
-              let finalSymbol = (a.source === d.source.id && a.target === d.target.id) 
-                                ? '-->' 
-                                : '<--'; 
+              
+              // Corrected logic for arrow direction in tooltip
+              let finalSymbol;
+              if (a.source === d.source.id && a.target === d.target.id) {
+                  finalSymbol = '-->'; 
+              } else if (a.source === d.target.id && a.target === d.source.id) {
+                  finalSymbol = '<--'; 
+              } else {
+                  finalSymbol = '-?-'; 
+              }
               
               return `<span class="red-text">${a.name} ${finalSymbol}</span>`;
           }).join('<br/>');
@@ -618,7 +645,11 @@
   simulation.on('tick', () => {
     node.attr('transform', d => `translate(${d.x},${d.y})`);
 
-    link.attr('d', d => {
+    // D3 needs to select the underlying path element to calculate the midpoint for the label.
+    // We use a temporary selection here or access the element directly.
+    const linkPathNodes = link.nodes();
+    
+    link.attr('d', (d, i) => {
         const sourceNode = d.source;
         const targetNode = d.target;
 
@@ -647,32 +678,44 @@
             // PathIndex 1 & 2 = One-way (parallel curves in one direction)
             
             // 1. Determine the magnitude offset for separation:
-            // Path 1 gets smaller offset, Path 2 gets larger offset.
             const offsetMagnitude = (d.pathIndex === 1) ? 0.2 : 0.8; 
-            
-            // We use a constant positive sign for the offset for a single curve direction
             const offset = offsetMagnitude; 
-            
-            // dr_factor controls the magnitude of the curve
             const dr_factor = adjustedDist * curvature * offset;
 
-            // 2. The sweep flag (arcFlag) controls the direction. We keep it constant (e.g., 0) for one direction.
+            // 2. The sweep flag (arcFlag) controls the direction. We keep it constant (0) for one direction.
             const arcFlag = 0; 
-            
-            // The radius for the arc command
             const dr = adjustedDist + dr_factor; 
             
-            if (dr <= adjustedDist) { // Check for straight line fallback (shouldn't happen with positive offset)
+            if (dr <= adjustedDist) { 
                  d.pathString = `M${sx},${sy}L${tx},${ty}`;
             } else {
-                 // Final Arc Path Command: M (start) A (rx, ry, xAxisRotation, largeArcFlag, sweepFlag, endX, endY)
-                 // Keeping largeArcFlag (0) and sweepFlag (0) constant forces the single direction.
                  d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
             }
         }
 
         return d.pathString;
     });
+
+    // *** NEW: Position the link labels after the path 'd' attribute is set ***
+    linkLabel.attr('transform', function(d, i) {
+        const pathNode = linkPathNodes[i];
+        
+        if (!pathNode || !d.pathString) return 'translate(0,0)'; 
+        
+        // Use d3's path utilities to find the midpoint
+        const pathLength = pathNode.getTotalLength();
+        const point = pathNode.getPointAtLength(pathLength / 2);
+        
+        // Calculate the angle for rotation (tangent to the path at the midpoint)
+        const pointBefore = pathNode.getPointAtLength(pathLength / 2 - 1);
+        const pointAfter = pathNode.getPointAtLength(pathLength / 2 + 1);
+        
+        const angle = Math.atan2(pointAfter.y - pointBefore.y, pointAfter.x - pointBefore.x) * 180 / Math.PI;
+        
+        // Apply transformation: move to midpoint, rotate to align with the path, and shift slightly above the line (-5px y offset)
+        return `translate(${point.x}, ${point.y}) rotate(${angle}) translate(0, -5)`;
+    })
+    .style('opacity', d => link.filter(l => l === d).style('opacity')); // Match link visibility
   });
 
   // --- Filtering Logic (omitted for brevity) ---
@@ -734,6 +777,10 @@
     link.transition().duration(duration)
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
+      
+    // Link Labels
+    linkLabel.transition().duration(duration)
+      .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0);
     
     // Nodes (Circles and Text)
     node.transition().duration(duration)
