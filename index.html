@@ -13,6 +13,13 @@
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { font-size:12px; pointer-events:none; }
     .link { fill:none; cursor:pointer; }
+    /* Style for the link labels */
+    .link-label text {
+        font-size: 10px;
+        fill: #333; /* Dark color for visibility */
+        pointer-events: none; /* Ignore mouse events */
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff; /* White outline for contrast */
+    }
     .tooltip { 
         position:absolute; 
         background:rgba(0,0,0,0.8); 
@@ -103,33 +110,19 @@
     animalDropdown.append('option').attr('value', a).text(a);
   });
   
-  // 👇 NEW: Populate City dropdown
+  // Populate City dropdown
   const cityDropdown = d3.select('#cityFilter');
   cityDropdown.append('option').attr('value', 'all').text('Show All');
   nodes.map(d => d.id).sort().forEach(city => {
     cityDropdown.append('option').attr('value', city).text(city);
   });
-  // 👆 END NEW
 
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // Default arrowhead (no longer needed, but kept for context if you switch back)
-  svg.append('defs').append('marker')
-    .attr('id', 'arrowhead')
-    .attr('viewBox', '-0 -5 10 10')
-    .attr('refX', 10)
-    .attr('refY', 0)
-    .attr('markerWidth', 6)
-    .attr('markerHeight', 6)
-    .attr('orient', 'auto')
-    .append('path')
-    .attr('d', 'M0,-5L10,0L0,5')
-    .attr('fill', '#999');
-
-  // NEW MARKERS for green and red links
+  // NEW: Define two distinct arrowheads for coloring
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead-green')
     .attr('viewBox', '-0 -5 10 10')
@@ -157,20 +150,33 @@
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([6, 24]);
 
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8))
-    .force('charge', d3.forceManyBody().strength(-150))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8)) // Longer link distance (200)
+    .force('charge', d3.forceManyBody().strength(-150)) // Reduced repulsion
     .force('center', d3.forceCenter(width/2, height/2))
     .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
 
+  // --- Link Path Drawing Group ---
   const link = svg.append('g').attr('class', 'links')
     .selectAll('path')
     .data(links)
     .join('path')
     .attr('class', 'link')
     .attr('stroke-width', 2.5)
-    // Use the `isReciprocal` flag for color
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)');
+
+  // 👇 NEW: Link Label Group
+  const linkLabel = svg.append('g').attr('class', 'link-labels')
+    .selectAll('g')
+    .data(links)
+    .join('g')
+    .attr('class', 'link-label');
+
+  linkLabel.append('text')
+    .attr('dy', -3) // slight vertical offset from the line
+    .attr('text-anchor', 'middle')
+    .text(d => d.Animals); 
+  // 👆 END NEW
 
   const node = svg.append('g').attr('class', 'nodes')
     .selectAll('g')
@@ -248,12 +254,28 @@
                  arcFlag = 1; // Curve the other way
              }
         }
-
-        // Use the arcFlag (sweep flag) to ensure the two reciprocal arcs separate
-        return `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
-
+        d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
+        return d.pathString;
     });
     node.attr('transform', d => `translate(${d.x},${d.y})`);
+
+    // 👇 NEW: Update link label position
+    linkLabel.attr('transform', d => {
+        // Calculate the midpoint of the link path
+        const path = link.filter(p => p === d).node();
+        if (!path) return `translate(0, 0)`;
+
+        const totalLength = path.getTotalLength();
+        const point = path.getPointAtLength(totalLength / 2);
+        
+        // Calculate the rotation angle (tangent at the midpoint)
+        const pointBefore = path.getPointAtLength(totalLength / 2 - 1);
+        const pointAfter = path.getPointAtLength(totalLength / 2 + 1);
+        const angle = Math.atan2(pointAfter.y - pointBefore.y, pointAfter.x - pointBefore.x) * (180 / Math.PI);
+        
+        return `translate(${point.x}, ${point.y}) rotate(${angle})`;
+    });
+    // 👆 END NEW
   });
 
   // --- Filtering Logic (Combined Handler) ---
@@ -312,6 +334,11 @@
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
     
+    // 👇 NEW: Transition link labels
+    linkLabel.transition().duration(duration)
+      .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
+      .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
+
     // Transition nodes
     node.transition().duration(duration)
       .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0)
