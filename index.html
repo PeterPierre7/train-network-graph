@@ -502,7 +502,7 @@
                 className = 'one-way';
             }
             
-            // *** FIX HERE: Adjust starting dy to create more vertical separation from the line ***
+            // Adjust starting dy to create vertical separation within the text block
             textElement.append('tspan')
                 .attr('class', className)
                 .attr('x', 0) // Align all tspan elements horizontally at x=0
@@ -742,7 +742,9 @@
         return d.pathString;
     });
 
-    // *** MODIFIED LOGIC FOR LABEL POSITIONING (Vertical separation) ***
+    // *** FIX: Use parallel offset to separate the labels along the length of the line ***
+    const parallelOffset = 30; // Distance to shift the labels along the line's direction
+
     linkLabel.attr('transform', function(d) {
         if (!d.midpoint) return 'translate(0,0)'; 
         
@@ -750,23 +752,33 @@
         const angle = d.angle; // Angle in radians
         
         let perpendicularOffsetMagnitude;
+        let finalParallelOffset = 0; // Default parallel offset
+        
         if (d.pathIndex === 0) {
-            // Index 0 (Reciprocal/Straight line) -> Center the label on the path (zero offset)
+            // Index 0 (Reciprocal/Straight line) -> Center (0 perp offset, 0 parallel offset)
             perpendicularOffsetMagnitude = 0;
+            finalParallelOffset = 0; 
         } else if (d.pathIndex === 1) {
-            // Index 1 (One-way/Curve 1) -> Offset to match the curve's visual center
-            perpendicularOffsetMagnitude = -25; // Negative offset for one curve
+            // Index 1 (One-way/Curve 1) -> Negative perpendicular offset, negative parallel offset
+            perpendicularOffsetMagnitude = -25; 
+            finalParallelOffset = -parallelOffset; // Shift towards the source node
         } else { // d.pathIndex === 2
-            // Index 2 (One-way/Curve 2) -> Offset to match the other curve's visual center
-            perpendicularOffsetMagnitude = 25; // Positive offset for the other curve
+            // Index 2 (One-way/Curve 2) -> Positive perpendicular offset, positive parallel offset
+            perpendicularOffsetMagnitude = 25; 
+            finalParallelOffset = parallelOffset; // Shift towards the target node
         }
         
-        // Calculate the perpendicular translation vector (normal to the path)
+        // 1. Calculate the PERPENDICULAR (side-to-side) translation
         const offsetX_perp = perpendicularOffsetMagnitude * (-Math.sin(angle));
         const offsetY_perp = perpendicularOffsetMagnitude * (Math.cos(angle));
 
-        // The final label position is the midpoint + perpendicular offset.
-        return `translate(${mx + offsetX_perp}, ${my + offsetY_perp})`;
+        // 2. Calculate the PARALLEL (along-the-line) translation
+        const offsetX_par = finalParallelOffset * (Math.cos(angle));
+        const offsetY_par = finalParallelOffset * (Math.sin(angle));
+
+
+        // The final label position is the midpoint + perpendicular offset + parallel offset
+        return `translate(${mx + offsetX_perp + offsetX_par}, ${my + offsetY_perp + offsetY_par})`;
     })
     .style('opacity', d => link.filter(l => l === d).style('opacity')); // Match link visibility
   });
