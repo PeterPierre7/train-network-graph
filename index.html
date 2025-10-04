@@ -237,10 +237,10 @@
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
 
-  // CHANGE: Augmented node attraction (more negative)
-  const originalChargeStrength = -250; 
-  // CHANGE: Reduced link strength (less rigid)
-  const originalLinkStrength = 0.5;
+  // CHANGE 1: Reverted Charge Strength to a lighter repulsion (to prevent overlaps)
+  const originalChargeStrength = -150; 
+  // CHANGE 2: Link Strength is now NEGATIVE for repulsion (links push nodes apart)
+  const originalLinkStrength = -0.5;
   
   const originalCollisionRadius = 5;
 
@@ -308,12 +308,12 @@
           d.fy = null;
       });
 
-      // NOTE: Using the augmented and reduced strength variables here
+      // Link repulsive strength is set here
       simulation
           .force('link').strength(originalLinkStrength);
       simulation
-          .force('charge', d3.forceManyBody().strength(originalChargeStrength))
-          .force('center', d3.forceCenter(width/2, height/2))
+          .force('charge', d3.forceManyBody().strength(originalChargeStrength)) // Node Repulsion (to prevent stacking)
+          .force('center', d3.forceCenter(width/2, height/2)) // Node Attraction (to keep cluster compact)
           .force('collision', d3.forceCollide().radius(d => rScaleAbstract(d.degree) + originalCollisionRadius));
       
       updateNodeAndLinkStyles(); 
@@ -328,7 +328,7 @@
       setGeographicalPositions(); 
       
       simulation
-          .force('link').strength(0.05);
+          .force('link').strength(0.05); // Link is gentle attraction in map mode
       simulation
           .force('charge', null)
           .force('center', null)
@@ -364,7 +364,7 @@
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // Link label only shows Animal type (ID is removed from the visible label)
+  // Link label only shows Animal type
   linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
       .text(d => d.Animals); 
 
@@ -498,7 +498,7 @@
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
 
   node.select('circle').on('mouseover', function(event, d) { handleNodeInteraction(event, d, this); })
-      .on('mousemove', moveTooltip).on('mouseout', function(event, d) { handleNodeMouseOut(event, d, this); })
+      .on('mousemove', moveTooltip).on('mouseout', function(event, d) { handleNodeInteraction(event, d, this); })
       .on('click', function(event, d) { handleNodeInteraction(event, d, this); });
 
   svg.on('click', (event) => {
