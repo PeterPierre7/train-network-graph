@@ -357,6 +357,22 @@
 
   let isMapMode = true;
 
+  // --- Marker Size Configuration (New Constants) ---
+  const markerBaseMapSize = 3;
+  const markerBaseAbstractSize = 6;
+  
+  function updateMarkerSizes() {
+      const transform = d3.zoomTransform(svg.node());
+      const scaleRatio = Math.max(mapMinScaleRatio, Math.min(mapMaxScaleRatio, 1 / Math.sqrt(transform.k)));
+      
+      const size = isMapMode ? (markerBaseMapSize * scaleRatio) : markerBaseAbstractSize;
+
+      // Select all markers and update their size
+      d3.selectAll('marker')
+          .attr('markerWidth', size)
+          .attr('markerHeight', size);
+  }
+
   function updateNodeAndLinkStyles() {
       const transform = d3.zoomTransform(svg.node());
       
@@ -392,6 +408,9 @@
           }
       });
 
+      // Update marker sizes
+      updateMarkerSizes();
+
 
       if (!isMapMode && simulation.force('collision')) {
           simulation.force('collision').radius(d => rScaleAbstract(d.degree) + originalCollisionRadius);
@@ -418,6 +437,7 @@
       
       updateNodeAndLinkStyles(); 
       simulation.alpha(1).restart();
+      updateMarkerSizes(); // Ensure markers are sized correctly
   }
 
   function setGeographicalLayout() {
@@ -435,6 +455,7 @@
           .force('collision', null);
       
       updateNodeAndLinkStyles();
+      updateMarkerSizes(); // Ensure markers are sized correctly
       
       simulation.alpha(1).restart();
   }
@@ -448,7 +469,7 @@
   });
 
   // Define arrowheads 
-  // REF X CHANGED TO 0 TO ALIGN THE ARROWHEAD TIP WITH THE DYNAMIC LINE ENDPOINT
+  // refX is set to 0 so the arrow tip/tail aligns with the path's endpoint (which is already calculated to be at the node's circumference).
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green-start').attr('viewBox', '-0 -5 10 10')
     .attr('refX', 0) 
@@ -714,6 +735,7 @@
         const rSource = d3.select(node.filter(n => n.id === sourceNode.id).node()).select('circle').attr('r') || mapBaseRadius;
         const rTarget = d3.select(node.filter(n => n.id === targetNode.id).node()).select('circle').attr('r') || mapBaseRadius;
         
+        // This calculation ensures the line starts/ends exactly at the node's circumference
         const sx = sourceNode.x + (dx / dist) * rSource;
         const sy = sourceNode.y + (dy / dist) * rSource;
         const tx = targetNode.x - (dx / dist) * rTarget;
