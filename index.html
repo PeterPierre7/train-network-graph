@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network with Animal Filter and Curved Links</title>
+<title>Train Network with Animal Filter</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
@@ -31,28 +31,37 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
-(async function(){
-  const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
-  const nodesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
-  const linksUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
+(function(){
 
-  const [nodesRaw, linksRaw] = await Promise.all([d3.csv(nodesUrl), d3.csv(linksUrl)]);
+  // --- New dataset ---
+  const nodesData = [
+    {CityName: "New York", HouseAnimals: "Dog,Cat"},
+    {CityName: "Los Angeles", HouseAnimals: "Dog"},
+    {CityName: "Chicago", HouseAnimals: "Dog"}
+  ];
 
-  const nodes = nodesRaw.map(d => ({
-    id: d.CityID,
-    label: d.CityName || d.CityID,
+  const linksData = [
+    {FromCity: "New York", ToCity: "Los Angeles", Animals: "Dog"},
+    {FromCity: "Los Angeles", ToCity: "New York", Animals: "Dog"},
+    {FromCity: "New York", ToCity: "Chicago", Animals: "Dog"},
+    {FromCity: "Chicago", ToCity: "New York", Animals: "Cat"}
+  ];
+
+  // --- Convert to nodes and links for D3 ---
+  const nodes = nodesData.map(d => ({
+    id: d.CityName,
+    label: d.CityName,
+    animals: d.HouseAnimals.split(',').map(a=>a.trim()),
     degree: 0
   }));
 
-  const links = linksRaw.map(d => ({
+  const links = linksData.map(d => ({
     source: d.FromCity,
     target: d.ToCity,
-    weight: +(d.PassengersPerDay || 1),
-    distance: +(d.DistanceKm || 0),
-    Animals: d.Animals || ''
+    Animals: d.Animals
   }));
 
-  // calculate node degrees
+  // compute degree
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
     const t = nodes.find(n => n.id === l.target);
@@ -60,11 +69,9 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     if(t) t.degree += 1;
   });
 
-  // animal dropdown
+  // --- Populate animal filter ---
   const animalSet = new Set();
-  links.forEach(l => {
-    if(l.Animals) l.Animals.split(',').forEach(a => animalSet.add(a.trim()));
-  });
+  links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   const animalDropdown = d3.select('#animalFilter');
   Array.from(animalSet).sort().forEach(a => {
     animalDropdown.append('option').attr('value', a).text(a);
@@ -76,7 +83,6 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes,d=>d.degree)).range([6,24]);
-  const linkWidth = d3.scaleLinear().domain(d3.extent(links,d=>d.weight)).range([1,6]);
 
   const simulation = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d=>d.id).distance(120).strength(0.8))
@@ -84,13 +90,12 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     .force('center', d3.forceCenter(width/2,height/2))
     .force('collision', d3.forceCollide().radius(d=>rScale(d.degree)+4));
 
-  // curved links
   const link = svg.append('g').attr('class','links')
     .selectAll('path')
     .data(links)
     .join('path')
     .attr('class','link')
-    .attr('stroke-width', d => linkWidth(d.weight));
+    .attr('stroke-width', 2);
 
   const node = svg.append('g').attr('class','nodes')
     .selectAll('g')
@@ -115,10 +120,10 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   const tooltip = d3.select('#tooltip');
   function showTooltipLink(event,d){
     tooltip.style('display','block').html(`<strong>${d.source.label} → ${d.target.label}</strong><br/>Animals: ${d.Animals}`);
-    d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',linkWidth(d.weight)+1);
+    d3.select(event.currentTarget).attr('stroke','#000');
   }
   function showTooltipNode(event,d){
-    tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}`);
+    tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
     d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);
   }
   function moveTooltip(event){ tooltip.style('left',(event.pageX+12)+'px').style('top',(event.pageY+12)+'px'); }
@@ -137,21 +142,19 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
 
-  // Animal filter: highlight links, keep connected nodes fully colored
+  // --- Animal filter ---
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
     const activeLinks = selectedAnimal 
-      ? links.filter(l => l.Animals.split(',').map(a=>a.trim()).includes(selectedAnimal)) 
+      ? links.filter(l => l.Animals === selectedAnimal)
       : links;
 
     const connectedNodeIds = new Set();
     activeLinks.forEach(l => { connectedNodeIds.add(l.source); connectedNodeIds.add(l.target); });
 
-    // update link appearance
     link.attr('stroke', d => activeLinks.includes(d) ? '#999' : '#ccc')
         .attr('stroke-opacity', d => activeLinks.includes(d) ? 0.8 : 0.1);
 
-    // update node appearance
     node.select('circle').attr('fill', d => connectedNodeIds.has(d.id) ? '#3b82f6' : '#aaa');
   });
 
