@@ -140,6 +140,7 @@
     if(s) s.degree += 1;
     if(t) t.degree += 1;
     
+    // Use an animal-specific reciprocal key
     const reciprocalKey = [l.source, l.target].sort().join('|') + '|' + l.Animals;
     
     if (!reciprocalRoutes[reciprocalKey]) {
@@ -187,10 +188,12 @@
           target: l.target
       };
       
-      // Only add unique entries (reciprocal links generate two records in linksRaw but should only be one in this list)
+      // Only add unique entries (Reciprocal A->B and B->A for the same animal are visually one line, but logically two records. 
+      // We only store one animal detail record for a reciprocal route.)
       const isUniqueInAggregated = !aggregatedAnimals[canonicalCityPair].some(a => 
-            a.name === animalDetail.name && 
-            ((a.isReciprocal && animalDetail.isReciprocal) || (a.source === animalDetail.source && a.target === animalDetail.target))
+          a.name === animalDetail.name && 
+          ((a.isReciprocal && animalDetail.isReciprocal) || // Match if both are reciprocal with same animal
+           (!a.isReciprocal && !animalDetail.isReciprocal && a.source === animalDetail.source && a.target === animalDetail.target)) // Match if both are one-way with same animal and direction
       );
 
       if (isUniqueInAggregated) {
@@ -212,7 +215,7 @@
               target: l.target,
               isReciprocal: l.isReciprocal,
               cityPair: canonicalCityPair, 
-              // Store direction indicator for curve logic
+              // Store direction indicator for curve logic (A->B or B->A)
               directionKey: l.source + '->' + l.target
           };
       }
@@ -237,28 +240,27 @@
   });
   
   // Assign index and total to each drawn path for arc curvature
-  // Reciprocal (index 0) gets straight line. One-way (index 1 and 2) get opposite curves.
+  // Reciprocal (pathIndex 0) gets straight line. One-way (pathIndex 1 and 2) get opposite curves.
   Object.values(pathGroups).forEach(group => {
       
-      // Sort links by direction key to ensure consistent curve assignment
-      group.sort((a, b) => a.directionKey.localeCompare(b.directionKey));
+      // Separate reciprocal and one-way links
+      const reciprocalLink = group.find(l => l.isReciprocal);
+      const oneWayLinks = group.filter(l => !l.isReciprocal);
 
-      let reciprocalIndex = -1;
-      let oneWayIndex = 0;
+      if (reciprocalLink) {
+          reciprocalLink.pathIndex = 0; // The single straight line
+      }
       
-      group.forEach(link => {
-          if (link.isReciprocal) {
-              link.pathIndex = 0; // The single straight line
-              reciprocalIndex = 0;
-          } else {
-              // Assign 1 or 2 for the two one-way curves
-              oneWayIndex++;
-              link.pathIndex = oneWayIndex; 
-          }
+      // Sort one-way links by direction key (e.g., "CityA->CityB", "CityB->CityA")
+      oneWayLinks.sort((a, b) => a.directionKey.localeCompare(b.directionKey));
+
+      oneWayLinks.forEach((link, index) => {
+          // Assign index 1 or 2 for the two one-way curves
+          link.pathIndex = index + 1; 
       });
   });
 
-  // --- Dropdown Population (omitted for brevity) ---
+  // --- Dropdown Population ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -274,7 +276,9 @@
   nodes.map(d => d.id).sort().forEach(city => {
     cityDropdown.append('option').attr('value', city).text(city);
   });
-
+  
+  const reciprocalDropdown = d3.select('#reciprocalFilter'); // Ensure this is defined
+  
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
   const height = container.node().clientHeight;
@@ -282,7 +286,7 @@
 
   const g = svg.append('g'); 
   
-  // --- Map Projection and Drawing (omitted for brevity) ---
+  // --- Map Projection and Drawing ---
   const projection = d3.geoMercator()
       .fitSize([width, height], topojson.feature(world, world.objects.countries));
 
@@ -313,7 +317,7 @@
   }
   setGeographicalPositions(); 
 
-  // --- Force Simulation Configuration and Layout Toggle (omitted for brevity) ---
+  // --- Force Simulation Configuration and Layout Toggle ---
   const rScaleAbstract = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
   
   const mapBaseRadius = 4;
@@ -323,6 +327,7 @@
   const linkBaseWidthMap = 1.5;
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
+  const curvature = 0.5; // Constant curvature for all links
 
   const originalChargeStrength = -350; 
   const originalLinkStrength = 0.4; 
@@ -443,7 +448,7 @@
 
   linkLabel.append('text'); 
 
-  // --- Node Group (omitted for brevity) ---
+  // --- Node Group ---
   const node = g.append('g').attr('class', 'nodes')
     .selectAll('g').data(nodes).join('g').attr('class', 'node')
     .call(d3.drag()
@@ -458,6 +463,7 @@
           if(!event.active) simulation.alphaTarget(0); 
           
           if (isMapMode) {
+              // Lock node to geographical position
               const [x, y] = projection([d.longitude, d.latitude]);
               d.fx = x;
               d.fy = y;
@@ -465,6 +471,7 @@
               d.y = y;
               simulation.alpha(1).restart();
           } else {
+              // Release node for force layout
               d.fx = null;
               d.fy = null;
           }
@@ -494,6 +501,7 @@
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
+              // Unlock Node
               node.select('circle').filter(n => n === currentTooltipLock).attr('stroke', '#fff').attr('stroke-width', 1.5);
           }
           currentTooltipLock = null;
@@ -508,7 +516,7 @@
       // Filter out only the unique reciprocal animals (since they're in the list twice but we only want to show them once)
       const reciprocalAnimals = [...new Map(allAnimals.filter(a => a.isReciprocal).map(item => [item['name'], item])).values()];
       
-      // Filter for one-way animals, respecting direction for symbol choice
+      // Filter for one-way animals
       const oneWayAnimals = allAnimals.filter(a => !a.isReciprocal);
       
       const sourceLabel = d.source.label || d.source.id;
@@ -519,8 +527,9 @@
 
       // 1. Reciprocal Section
       if (reciprocalAnimals.length > 0) {
-          htmlContent += reciprocalAnimals.map(name => 
-              `<span class="green-text">${name.name} $\\leftrightarrow$</span>`
+          htmlContent += reciprocalAnimals.map(a => 
+              // FIXED: Changed '\rightarrow' to '\leftrightarrow' for reciprocal
+              `<span class="green-text">${a.name} $\\leftrightarrow$</span>` 
           ).join('<br/>') + '<br/>';
       }
 
@@ -528,24 +537,11 @@
       if (oneWayAnimals.length > 0) {
           
           const oneWayList = oneWayAnimals.map(a => {
-              // Determine direction relative to A and B, where A is the alphabetically sorted city for consistency
-              const [cityA, cityB] = cityPair.split('|');
-              const directionSymbol = (a.source === cityA && a.target === cityB) || (a.source === cityB && a.target === cityA)
-                                      ? '$\\rightarrow$' // Travel from alphabetically first city to second
-                                      : '$\\leftarrow$'; // Travel from alphabetically second city to first
-              
-              // Correct symbol based on original source/target of the link we are hovering over
-              let finalSymbol = (a.source === d.source.id) ? '$\\rightarrow$' : '$\\leftarrow$';
-
-              // If the cities are the same as the drawn link (d.source.id -> d.target.id), show ->, otherwise <-
-              if (a.source === d.source.id && a.target === d.target.id) {
-                  finalSymbol = '$\\rightarrow$';
-              } else if (a.source === d.target.id && a.target === d.source.id) {
-                   finalSymbol = '$\\leftarrow$';
-              } else {
-                   // Fallback for full list display - use original route direction 
-                   finalSymbol = (a.source === d.source.id) ? '$\\rightarrow$' : '$\\leftarrow$';
-              }
+              // Determine the correct one-way symbol:
+              // If the animal route direction is the same as the drawn link's direction (d.source -> d.target)
+              let finalSymbol = (a.source === d.source.id && a.target === d.target.id) 
+                                ? '$\\rightarrow$' 
+                                : '$\\leftarrow$'; 
               
               return `<span class="red-text">${a.name} ${finalSymbol}</span>`;
           }).join('<br/>');
@@ -610,7 +606,7 @@
   }
 
 
-  // --- Event Listeners (omitted for brevity) ---
+  // --- Event Listeners ---
   link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
       .on('mousemove', moveTooltip).on('mouseout', handleLinkMouseOut)
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
@@ -620,7 +616,8 @@
       .on('click', function(event, d) { handleNodeInteraction(event, d, this); });
 
   svg.on('click', (event) => {
-    if (event.target.tagName === 'svg' || event.target.tagName === 'path' || event.target.tagName === 'rect' && d3.select(event.target).attr('class') === 'overlay') {
+    // Dismiss lock if click is on the SVG background (or map elements)
+    if (event.target.tagName === 'svg' || event.target.tagName === 'path' && (d3.select(event.target).attr('class') === 'sphere' || d3.select(event.target).attr('class') === 'country')) {
         dismissLock();
         tooltip.style('display', 'none');
     }
@@ -641,6 +638,7 @@
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist === 0) return null;
         
+        // Get dynamic radius for link adjustment
         const rSource = d3.select(node.filter(n => n.id === sourceNode.id).node()).select('circle').attr('r') || mapBaseRadius;
         const rTarget = d3.select(node.filter(n => n.id === targetNode.id).node()).select('circle').attr('r') || mapBaseRadius;
         
@@ -651,34 +649,29 @@
         
         const adjustedDist = dist - rSource - rTarget;
         
-        if (d.isReciprocal) {
-            // **RECIPROCAL: STRAIGHT LINE** d.pathString = `M${sx},${sy}L${tx},${ty}`;
+        // PathIndex 0 = Reciprocal (straight line)
+        if (d.pathIndex === 0) {
+            d.pathString = `M${sx},${sy}L${tx},${ty}`;
         } else {
-            // **ONE-WAY: CURVED LINE** const curvature = 0.5; 
-            let dr_factor;
-            let arcFlag; 
+            // PathIndex 1 & 2 = One-way (opposite curves)
+            // pathIndex = 1 gets negative offset (curves to the right/up initially)
+            // pathIndex = 2 gets positive offset (curves to the left/down initially)
+            const offset = (d.pathIndex === 1) ? -0.5 : 0.5;
             
-            // pathIndex is 1 or 2. We use pathIndex=1 for one direction, pathIndex=2 for the reverse.
-            const pathIndex = d.pathIndex;
-            
-            // Offset logic: The goal is to draw the two one-way lines on opposite sides of the straight line.
-            // When drawing A->B and B->A, the first one-way line (index 1) gets a negative offset,
-            // and the second one-way line (index 2) gets a positive offset.
-            const offset = (pathIndex === 1) ? -0.5 : 0.5;
-            
-            dr_factor = adjustedDist * curvature * offset;
+            // dr_factor controls the magnitude of the curve
+            const dr_factor = adjustedDist * curvature * offset;
 
-            // arcFlag is used to determine which side of the axis the arc bends.
-            // By making pathIndex 1 have an opposite arcFlag (1) to pathIndex 2 (0), 
-            // and using opposite dr_factor signs, we ensure they curve away from each other.
-            // arcFlag = offset > 0 ? 0 : 1; 
-            arcFlag = (pathIndex === 1) ? 1 : 0; 
+            // arcFlag controls the direction of the arc for the SVG 'A' command
+            // pathIndex 1: arcFlag=1 (sweep flag set)
+            // pathIndex 2: arcFlag=0 (sweep flag not set)
+            const arcFlag = (d.pathIndex === 1) ? 1 : 0; 
             
             const dr = adjustedDist + Math.abs(dr_factor); 
             
             if (Math.abs(dr_factor) < 1) {
                  d.pathString = `M${sx},${sy}L${tx},${ty}`;
             } else {
+                 // Use large radius (dr) and opposite sweep flags to ensure separation
                  d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
             }
         }
@@ -687,7 +680,7 @@
     });
   });
 
-  // --- Filtering Logic (omitted for brevity) ---
+  // --- Filtering Logic ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
@@ -728,38 +721,50 @@
         connectedNodeIds.add(l.target.id);
     });
 
-    // Handle nodes with no active links
-    if (selectedCity !== 'all' && !connectedNodeIds.has(selectedCity)) {
-        connectedNodeIds.add(selectedCity);
-    }
+    // Also include any nodes that have the animal we are filtering for, even if unconnected
     if (selectedAnimal !== 'all') {
          nodes.forEach(n => { 
             if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
          });
-    } else if (connectedNodeIds.size === 0 && selectedCity === 'all') {
+    }
+
+    // If 'City' is selected, ensure that city is visible even if it has no active links with current filters
+    if (selectedCity !== 'all') {
+        connectedNodeIds.add(selectedCity);
+    } 
+    
+    // If all filters are 'all', make *all* nodes visible (This fixes the default state issue)
+    if (selectedAnimal === 'all' && selectedCity === 'all' && connectedNodeIds.size === 0) {
         nodes.forEach(n => connectedNodeIds.add(n.id));
     }
 
 
     // 5. Apply Transitions
+    // Links (Paths)
     link.transition().duration(duration)
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
     
+    // Link Labels (currently hidden by CSS but included for completeness)
     linkLabel.transition().duration(duration)
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
 
+    // Nodes (Circles and Text)
     node.transition().duration(duration)
       .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0)
       .style('pointer-events', d => connectedNodeIds.has(d.id) ? 'auto' : 'none');
+      
+    // Node Text (Explicitly setting opacity on text element, ensuring it's visible with the node)
+    node.select('text').transition().duration(duration)
+       .style('opacity', d => connectedNodeIds.has(d.id) ? 1.0 : 0);
   }
 
   animalDropdown.on('change', updateVisualization);
   cityDropdown.on('change', updateVisualization);
   reciprocalDropdown.on('change', updateVisualization);
   
-  // Resize handler updated
+  // Resize handler 
   window.addEventListener('resize', () => {
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
@@ -782,7 +787,7 @@
   // Initial run
   updateNodeAndLinkStyles(); 
   simulation.alpha(1).restart(); 
-  updateVisualization(); 
+  updateVisualization(); // This call now ensures default visibility
 
 })();
 </script>
