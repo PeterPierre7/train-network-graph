@@ -27,12 +27,10 @@
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { 
         font-weight: bold;
-        /* NOTE: Font size set dynamically in updateNodeAndLinkStyles() */
-        fill: #000; /* Black for readability on map */
+        fill: #000; 
         pointer-events:none; 
         text-anchor: middle;
         dominant-baseline: central;
-        /* Fixed grey text-shadow for background/halo effect */
         text-shadow: 0 0 3px #ccc, 0 0 3px #ccc, 0 0 3px #ccc; 
     }
     .link { fill:none; cursor:pointer; }
@@ -54,7 +52,7 @@
         line-height: 1.4;
     }
     .tooltip strong {
-        color: #ffcc00; /* Highlight route title */
+        color: #ffcc00; 
     }
     .green-text { color: lightgreen; }
     .red-text { color: red; }
@@ -82,11 +80,11 @@
     <label for="cityFilter">City:</label>
     <select id="cityFilter">
       </select>
-    <hr style="margin: 15px 0; border-top: 1px solid #ccc;">
+    <hr style="margin: 15px 0; border: none; border-top: 1px solid #ccc;">
     <label for="animalFilter">Animal:</label>
     <select id="animalFilter">
       </select>
-    <hr style="margin: 15px 0; border-top: 1px solid #ccc;">
+    <hr style="margin: 15px 0; border: none; border-top: 1px solid #ccc;">
     <label for="reciprocalFilter">Route Type:</label>
     <select id="reciprocalFilter">
         <option value="all">Show All Routes</option>
@@ -142,7 +140,6 @@
     if(s) s.degree += 1;
     if(t) t.degree += 1;
     
-    // Canonical key for reciprocal check (sorted cities + animal)
     const reciprocalKey = [l.source, l.target].sort().join('|') + '|' + l.Animals;
     
     if (!reciprocalRoutes[reciprocalKey]) {
@@ -172,7 +169,7 @@
   // LOGIC: Simplify Links for Display (MAX 3 LINES)
   // =======================================================
   const uniqueDisplayLinks = {};
-  const aggregatedAnimals = {}; // Store *all* animals for a city pair for the combined tooltip
+  const aggregatedAnimals = {}; 
 
   links.forEach(l => {
       const sortedCities = [l.source, l.target].sort();
@@ -190,8 +187,13 @@
           target: l.target
       };
       
-      // Only add unique animal details (since isReciprocal may cause two entries)
-      if (!aggregatedAnimals[canonicalCityPair].some(a => a.name === animalDetail.name && a.source === animalDetail.source && a.target === animalDetail.target)) {
+      // Only add unique entries (reciprocal links generate two records in linksRaw but should only be one in this list)
+      const isUniqueInAggregated = !aggregatedAnimals[canonicalCityPair].some(a => 
+            a.name === animalDetail.name && 
+            ((a.isReciprocal && animalDetail.isReciprocal) || (a.source === animalDetail.source && a.target === animalDetail.target))
+      );
+
+      if (isUniqueInAggregated) {
            aggregatedAnimals[canonicalCityPair].push(animalDetail);
       }
       
@@ -206,21 +208,19 @@
 
       if (!uniqueDisplayLinks[displayKey]) {
           uniqueDisplayLinks[displayKey] = {
-              source: l.source, // Keep original source/target for correct drawing/curvature
+              source: l.source, 
               target: l.target,
               isReciprocal: l.isReciprocal,
-              // Link just needs to know the city pair to retrieve its full animal list in the tooltip
               cityPair: canonicalCityPair, 
-              originalSource: l.source,
-              originalTarget: l.target
+              // Store direction indicator for curve logic
+              directionKey: l.source + '->' + l.target
           };
       }
-      // Note: We don't need to aggregate Animals here, only the list of aggregated Animals is needed for the tooltip, which is stored in aggregatedAnimals.
   });
 
   const labeledLinks = Object.values(uniqueDisplayLinks);
   
-  // Resolve source/target objects for d3-force compatibility
+  // Resolve source/target objects
   labeledLinks.forEach(l => {
       l.source = nodes.find(n => n.id === l.source) || l.source;
       l.target = nodes.find(n => n.id === l.target) || l.target;
@@ -237,9 +237,12 @@
   });
   
   // Assign index and total to each drawn path for arc curvature
-  // Max of 3 paths: 1 reciprocal (index 0, straight), 2 one-way (index 1 & 2, curved)
+  // Reciprocal (index 0) gets straight line. One-way (index 1 and 2) get opposite curves.
   Object.values(pathGroups).forEach(group => {
-      const total = group.length;
+      
+      // Sort links by direction key to ensure consistent curve assignment
+      group.sort((a, b) => a.directionKey.localeCompare(b.directionKey));
+
       let reciprocalIndex = -1;
       let oneWayIndex = 0;
       
@@ -248,14 +251,14 @@
               link.pathIndex = 0; // The single straight line
               reciprocalIndex = 0;
           } else {
-              // Assign curvature indices (1 and 2 for the two one-way curves)
-              link.pathIndex = ++oneWayIndex; 
+              // Assign 1 or 2 for the two one-way curves
+              oneWayIndex++;
+              link.pathIndex = oneWayIndex; 
           }
-          link.pathTotal = total;
       });
   });
 
-  // --- Dropdown Population ---
+  // --- Dropdown Population (omitted for brevity) ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -272,9 +275,6 @@
     cityDropdown.append('option').attr('value', city).text(city);
   });
 
-  const reciprocalDropdown = d3.select('#reciprocalFilter');
-  // Dropdown already populated in HTML
-
   const container = d3.select('#chart');
   const width = container.node().clientWidth;
   const height = container.node().clientHeight;
@@ -282,7 +282,7 @@
 
   const g = svg.append('g'); 
   
-  // --- Map Projection and Drawing ---
+  // --- Map Projection and Drawing (omitted for brevity) ---
   const projection = d3.geoMercator()
       .fitSize([width, height], topojson.feature(world, world.objects.countries));
 
@@ -313,7 +313,7 @@
   }
   setGeographicalPositions(); 
 
-  // --- Force Simulation Configuration (omitted for brevity) ---
+  // --- Force Simulation Configuration and Layout Toggle (omitted for brevity) ---
   const rScaleAbstract = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
   
   const mapBaseRadius = 4;
@@ -420,14 +420,12 @@
       }
   });
 
-
   // Define arrowheads
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green-start').attr('viewBox', '-0 -5 10 10').attr('refX', -10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   
-  // Single arrowhead for Red lines
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-red-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'red');
 
@@ -436,15 +434,13 @@
   const link = g.append('g').attr('class', 'links')
     .selectAll('path').data(labeledLinks).join('path').attr('class', 'link')
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
-    // Set markers: Reciprocal gets both, One-way gets just the end
     .attr('marker-start', d => d.isReciprocal ? 'url(#arrowhead-green-start)' : null)
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green-end)' : 'url(#arrowhead-red-end)');
 
-  // --- Link Label Group (Removed text content) ---
+  // --- Link Label Group (Kept empty/hidden) ---
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // Link label is empty to hide text, but kept for future use if necessary
   linkLabel.append('text'); 
 
   // --- Node Group (omitted for brevity) ---
@@ -506,37 +502,52 @@
   
   // Function to create the aggregated tooltip content
   function getLinkTooltipContent(d) {
-      const cityPair = d.cityPair; // The canonical key of the city pair
+      const cityPair = d.cityPair; 
       const allAnimals = aggregatedAnimals[cityPair] || [];
 
-      const reciprocalAnimals = allAnimals.filter(a => a.isReciprocal);
-      // Filter out animals that are reciprocal in both directions to avoid showing them twice
+      // Filter out only the unique reciprocal animals (since they're in the list twice but we only want to show them once)
+      const reciprocalAnimals = [...new Map(allAnimals.filter(a => a.isReciprocal).map(item => [item['name'], item])).values()];
+      
+      // Filter for one-way animals, respecting direction for symbol choice
       const oneWayAnimals = allAnimals.filter(a => !a.isReciprocal);
       
       const sourceLabel = d.source.label || d.source.id;
       const targetLabel = d.target.label || d.target.id;
       
-      let htmlContent = `<strong>Route Summary: ${sourceLabel} to ${targetLabel}</strong><hr style="margin: 5px 0; border: none; border-top: 1px solid #ccc;"/>`;
+      // Simple and direct list for the tooltip
+      let htmlContent = `<strong>Route: ${sourceLabel} to ${targetLabel}</strong><hr style="margin: 5px 0; border: none; border-top: 1px solid #ccc;"/>`;
 
       // 1. Reciprocal Section
       if (reciprocalAnimals.length > 0) {
-          // Remove duplicates since each reciprocal route was added twice (A->B and B->A)
-          const uniqueReciprocalNames = [...new Set(reciprocalAnimals.map(a => a.name))];
-          
-          htmlContent += `<strong>Reciprocal Routes <span class="green-text">(Two-Way $\\leftrightarrow$)</span>:</strong><br/>`;
-          htmlContent += uniqueReciprocalNames.map(name => 
-              `<span class="green-text">${name} $\\leftrightarrow$</span>`
+          htmlContent += reciprocalAnimals.map(name => 
+              `<span class="green-text">${name.name} $\\leftrightarrow$</span>`
           ).join('<br/>') + '<br/>';
       }
 
       // 2. One-Way Section
       if (oneWayAnimals.length > 0) {
-          htmlContent += `<br/><strong>One-Way Routes <span class="red-text">(Single Direction $\\rightarrow$)</span>:</strong><br/>`;
           
-          // Group one-way routes by their direction relative to the drawn line's direction (d.originalSource -> d.originalTarget)
           const oneWayList = oneWayAnimals.map(a => {
-              const directionSymbol = a.source === d.source.id ? '$\\rightarrow$' : '$\\leftarrow$';
-              return `<span class="red-text">${a.name} ${directionSymbol}</span>`;
+              // Determine direction relative to A and B, where A is the alphabetically sorted city for consistency
+              const [cityA, cityB] = cityPair.split('|');
+              const directionSymbol = (a.source === cityA && a.target === cityB) || (a.source === cityB && a.target === cityA)
+                                      ? '$\\rightarrow$' // Travel from alphabetically first city to second
+                                      : '$\\leftarrow$'; // Travel from alphabetically second city to first
+              
+              // Correct symbol based on original source/target of the link we are hovering over
+              let finalSymbol = (a.source === d.source.id) ? '$\\rightarrow$' : '$\\leftarrow$';
+
+              // If the cities are the same as the drawn link (d.source.id -> d.target.id), show ->, otherwise <-
+              if (a.source === d.source.id && a.target === d.target.id) {
+                  finalSymbol = '$\\rightarrow$';
+              } else if (a.source === d.target.id && a.target === d.source.id) {
+                   finalSymbol = '$\\leftarrow$';
+              } else {
+                   // Fallback for full list display - use original route direction 
+                   finalSymbol = (a.source === d.source.id) ? '$\\rightarrow$' : '$\\leftarrow$';
+              }
+              
+              return `<span class="red-text">${a.name} ${finalSymbol}</span>`;
           }).join('<br/>');
 
           htmlContent += oneWayList;
@@ -548,7 +559,6 @@
 
       return htmlContent;
   }
-
 
   function updateTooltip(event, d, isNode) {
     let htmlContent;
@@ -600,7 +610,7 @@
   }
 
 
-  // --- Event Listeners ---
+  // --- Event Listeners (omitted for brevity) ---
   link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
       .on('mousemove', moveTooltip).on('mouseout', handleLinkMouseOut)
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
@@ -641,27 +651,28 @@
         
         const adjustedDist = dist - rSource - rTarget;
         
-        // Curvature is only applied to one-way links (pathIndex > 0)
         if (d.isReciprocal) {
-            // **RECIPROCAL: STRAIGHT LINE** (pathIndex 0)
-             d.pathString = `M${sx},${sy}L${tx},${ty}`;
+            // **RECIPROCAL: STRAIGHT LINE** d.pathString = `M${sx},${sy}L${tx},${ty}`;
         } else {
-            // **ONE-WAY: CURVED LINE** (pathIndex 1 or 2)
-            const curvature = 0.5; // Reduced curvature for the two opposite curves
+            // **ONE-WAY: CURVED LINE** const curvature = 0.5; 
             let dr_factor;
             let arcFlag; 
             
-            // The two one-way lines will have pathIndex 1 and 2
-            const pathIndex = d.pathIndex || 1; // 1 or 2
+            // pathIndex is 1 or 2. We use pathIndex=1 for one direction, pathIndex=2 for the reverse.
+            const pathIndex = d.pathIndex;
             
-            // Adjust factor to separate the two one-way lines symmetrically
-            // Index 1 (first one-way) gets negative offset, Index 2 (second one-way) gets positive offset
-            // We use 0.5 and -0.5 based on a total of 2 curves to keep them distinct from the straight line (index 0)
+            // Offset logic: The goal is to draw the two one-way lines on opposite sides of the straight line.
+            // When drawing A->B and B->A, the first one-way line (index 1) gets a negative offset,
+            // and the second one-way line (index 2) gets a positive offset.
             const offset = (pathIndex === 1) ? -0.5 : 0.5;
-
+            
             dr_factor = adjustedDist * curvature * offset;
 
-            arcFlag = offset > 0 ? 0 : 1; 
+            // arcFlag is used to determine which side of the axis the arc bends.
+            // By making pathIndex 1 have an opposite arcFlag (1) to pathIndex 2 (0), 
+            // and using opposite dr_factor signs, we ensure they curve away from each other.
+            // arcFlag = offset > 0 ? 0 : 1; 
+            arcFlag = (pathIndex === 1) ? 1 : 0; 
             
             const dr = adjustedDist + Math.abs(dr_factor); 
             
@@ -674,8 +685,6 @@
 
         return d.pathString;
     });
-    
-    // Remove link label position update since they are now empty/hidden
   });
 
   // --- Filtering Logic (omitted for brevity) ---
@@ -692,6 +701,7 @@
     // 1. Filter by Animal: Links contain at least one route with the selected animal
     if (selectedAnimal !== 'all') {
         const filteredCityPairs = new Set();
+        // Check if *any* route between the city pair involves the selected animal
         links.filter(l => l.Animals === selectedAnimal).forEach(l => {
             filteredCityPairs.add([l.source, l.target].sort().join('|'));
         });
@@ -718,7 +728,7 @@
         connectedNodeIds.add(l.target.id);
     });
 
-    // Handle nodes with no active links (e.g., node selected via city filter, or node with only animal filter match)
+    // Handle nodes with no active links
     if (selectedCity !== 'all' && !connectedNodeIds.has(selectedCity)) {
         connectedNodeIds.add(selectedCity);
     }
@@ -727,7 +737,6 @@
             if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
          });
     } else if (connectedNodeIds.size === 0 && selectedCity === 'all') {
-        // Show all nodes if no filters are active
         nodes.forEach(n => connectedNodeIds.add(n.id));
     }
 
@@ -737,7 +746,6 @@
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
     
-    // The link label group is visually hidden by CSS (display: none), but we keep this transition for completeness
     linkLabel.transition().duration(duration)
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
@@ -774,7 +782,7 @@
   // Initial run
   updateNodeAndLinkStyles(); 
   simulation.alpha(1).restart(); 
-  updateVisualization(); // Ensure initial filtering/visibility is correct
+  updateVisualization(); 
 
 })();
 </script>
