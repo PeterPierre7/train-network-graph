@@ -37,12 +37,11 @@
     }
     .link { fill:none; cursor:pointer; }
     
-    .link-label text {
-        /* NOTE: Font size set dynamically in updateNodeAndLinkStyles() */
-        font-weight: bold;
-        pointer-events: none; 
-        text-shadow: 0 0 4px #fff, 0 0 4px #fff; 
+    .link-label { 
+        /* Ensure link label is not drawn */
+        display: none; 
     }
+
     .tooltip { 
         position:absolute; 
         background:rgba(0,0,0,0.8); 
@@ -170,46 +169,53 @@
   });
 
   // =======================================================
-  // LOGIC: Simplify Links for Display and Curvature Grouping
+  // LOGIC: Simplify Links for Display (MAX 3 LINES)
   // =======================================================
   const uniqueDisplayLinks = {};
-  const animalsToStatus = {}; // Store animal status for tooltip
+  const aggregatedAnimals = {}; // Store *all* animals for a city pair for the combined tooltip
 
   links.forEach(l => {
       const sortedCities = [l.source, l.target].sort();
-      const canonicalKey = sortedCities.join('|');
+      const canonicalCityPair = sortedCities.join('|');
       
-      // Store the status of each individual animal route
-      animalsToStatus[l.Animals] = l.isReciprocal ? 'Reciprocal' : 'One-way';
-
+      // Store ALL animal details for the tooltip
+      if (!aggregatedAnimals[canonicalCityPair]) {
+          aggregatedAnimals[canonicalCityPair] = [];
+      }
+      
+      const animalDetail = {
+          name: l.Animals,
+          isReciprocal: l.isReciprocal,
+          source: l.source,
+          target: l.target
+      };
+      
+      // Only add unique animal details (since isReciprocal may cause two entries)
+      if (!aggregatedAnimals[canonicalCityPair].some(a => a.name === animalDetail.name && a.source === animalDetail.source && a.target === animalDetail.target)) {
+           aggregatedAnimals[canonicalCityPair].push(animalDetail);
+      }
+      
       let displayKey;
       if (l.isReciprocal) {
-          // All reciprocal routes between A and B are one single green link
-          displayKey = canonicalKey + '|reciprocal';
+          // 1. One line for all reciprocal routes (A-B, B-A are identical)
+          displayKey = canonicalCityPair + '|reciprocal';
       } else {
-          // All one-way routes between A and B are one single red link (must respect direction)
+          // 2 & 3. One line for each one-way direction (must respect source/target)
           displayKey = l.source + '|' + l.target + '|one-way';
       }
 
       if (!uniqueDisplayLinks[displayKey]) {
           uniqueDisplayLinks[displayKey] = {
-              source: l.isReciprocal ? sortedCities[0] : l.source,
-              target: l.isReciprocal ? sortedCities[1] : l.target,
+              source: l.source, // Keep original source/target for correct drawing/curvature
+              target: l.target,
               isReciprocal: l.isReciprocal,
-              Animals: [{ name: l.Animals, status: animalsToStatus[l.Animals] }], // Store object for easy display
-              routeIds: [l.RouteID],
+              // Link just needs to know the city pair to retrieve its full animal list in the tooltip
+              cityPair: canonicalCityPair, 
               originalSource: l.source,
               originalTarget: l.target
           };
-      } else {
-          // Aggregate animal types and route IDs
-          if (!uniqueDisplayLinks[displayKey].Animals.some(a => a.name === l.Animals)) {
-              uniqueDisplayLinks[displayKey].Animals.push({ name: l.Animals, status: animalsToStatus[l.Animals] });
-          }
-          if (!uniqueDisplayLinks[displayKey].routeIds.includes(l.RouteID)) {
-             uniqueDisplayLinks[displayKey].routeIds.push(l.RouteID);
-          }
       }
+      // Note: We don't need to aggregate Animals here, only the list of aggregated Animals is needed for the tooltip, which is stored in aggregatedAnimals.
   });
 
   const labeledLinks = Object.values(uniqueDisplayLinks);
@@ -219,7 +225,6 @@
       l.source = nodes.find(n => n.id === l.source) || l.source;
       l.target = nodes.find(n => n.id === l.target) || l.target;
   });
-
 
   // Group paths by city pair for curvature indexing
   const pathGroups = {};
@@ -232,15 +237,25 @@
   });
   
   // Assign index and total to each drawn path for arc curvature
+  // Max of 3 paths: 1 reciprocal (index 0, straight), 2 one-way (index 1 & 2, curved)
   Object.values(pathGroups).forEach(group => {
       const total = group.length;
-      group.forEach((link, index) => {
-          link.pathIndex = index;
+      let reciprocalIndex = -1;
+      let oneWayIndex = 0;
+      
+      group.forEach(link => {
+          if (link.isReciprocal) {
+              link.pathIndex = 0; // The single straight line
+              reciprocalIndex = 0;
+          } else {
+              // Assign curvature indices (1 and 2 for the two one-way curves)
+              link.pathIndex = ++oneWayIndex; 
+          }
           link.pathTotal = total;
       });
   });
 
-  // --- Dropdown Population (Omitted for brevity) ---
+  // --- Dropdown Population ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -267,7 +282,7 @@
 
   const g = svg.append('g'); 
   
-  // --- Map Projection and Drawing (Omitted for brevity) ---
+  // --- Map Projection and Drawing ---
   const projection = d3.geoMercator()
       .fitSize([width, height], topojson.feature(world, world.objects.countries));
 
@@ -298,7 +313,7 @@
   }
   setGeographicalPositions(); 
 
-  // --- Force Simulation Configuration (Omitted for brevity) ---
+  // --- Force Simulation Configuration (omitted for brevity) ---
   const rScaleAbstract = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
   
   const mapBaseRadius = 4;
@@ -306,8 +321,6 @@
   const mapMaxScaleRatio = 1.5; 
   const linkBaseWidthAbstract = 1.5; 
   const linkBaseWidthMap = 1.5;
-  const linkLabelSizeMap = 4;
-  const linkLabelSizeAbstract = 9;
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
 
@@ -328,11 +341,9 @@
 
   let isMapMode = true;
 
-  // Function to dynamically update visual styles based on mode and zoom (Omitted for brevity)
   function updateNodeAndLinkStyles() {
       const transform = d3.zoomTransform(svg.node());
       
-      // Node Radius Update
       node.select('circle').attr('r', d => {
           if (isMapMode) {
               const scaleRatio = Math.max(mapMinScaleRatio, Math.min(mapMaxScaleRatio, 1 / Math.sqrt(transform.k)));
@@ -342,7 +353,6 @@
           }
       });
       
-      // Link Width Update
       link.attr('stroke-width', d => {
           if (isMapMode) {
               const scaleRatio = Math.max(mapMinScaleRatio, Math.min(mapMaxScaleRatio, 1 / Math.sqrt(transform.k)));
@@ -351,13 +361,7 @@
               return linkBaseWidthAbstract;
           }
       });
-
-      // Link Label Font Size Update
-      linkLabel.select('text').style('font-size', d => {
-          return isMapMode ? `${linkLabelSizeMap}px` : `${linkLabelSizeAbstract}px`;
-      });
       
-      // City Label Font Size Update
       node.select('text').style('font-size', d => {
           return isMapMode ? `${cityLabelSizeMap}px` : `${cityLabelSizeAbstract}px`;
       });
@@ -368,7 +372,6 @@
       }
   }
 
-  // --- Layout Toggle Logic (Omitted for brevity) ---
   function setAbstractLayout() {
       isMapMode = false;
       d3.select('#mapToggle').text('Toggle Map (OFF)').attr('class', '');
@@ -424,7 +427,7 @@
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   
-  // NOTE: Red one-way links only use one arrowhead at the 'end'
+  // Single arrowhead for Red lines
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-red-end').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'red');
 
@@ -433,25 +436,18 @@
   const link = g.append('g').attr('class', 'links')
     .selectAll('path').data(labeledLinks).join('path').attr('class', 'link')
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
-    // Set markers based on the aggregated link type
+    // Set markers: Reciprocal gets both, One-way gets just the end
     .attr('marker-start', d => d.isReciprocal ? 'url(#arrowhead-green-start)' : null)
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green-end)' : 'url(#arrowhead-red-end)');
 
-  // --- Link Label Group ---
+  // --- Link Label Group (Removed text content) ---
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // Link label shows the summary of animal routes
-  linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
-      .html(d => {
-          return d.Animals.map(a => {
-              const direction = d.isReciprocal ? '↔' : '→';
-              const colorClass = d.isReciprocal ? 'green-text' : 'red-text';
-              return `<tspan class="${colorClass}">${a.name} ${direction}</tspan>`;
-          }).join(', ');
-      }); 
+  // Link label is empty to hide text, but kept for future use if necessary
+  linkLabel.append('text'); 
 
-  // --- Node Group (Omitted for brevity) ---
+  // --- Node Group (omitted for brevity) ---
   const node = g.append('g').attr('class', 'nodes')
     .selectAll('g').data(nodes).join('g').attr('class', 'node')
     .call(d3.drag()
@@ -482,7 +478,7 @@
   node.append('circle').attr('fill', '#3b82f6');
   node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
-  // --- Zoom Logic and Tooltip (Omitted for brevity) ---
+  // --- Zoom Logic and Tooltip ---
   const zoom = d3.zoom()
       .scaleExtent([0.5, 8]) 
       .on('zoom', (event) => {
@@ -507,30 +503,59 @@
           currentTooltipLock = null;
       }
   }
+  
+  // Function to create the aggregated tooltip content
+  function getLinkTooltipContent(d) {
+      const cityPair = d.cityPair; // The canonical key of the city pair
+      const allAnimals = aggregatedAnimals[cityPair] || [];
+
+      const reciprocalAnimals = allAnimals.filter(a => a.isReciprocal);
+      // Filter out animals that are reciprocal in both directions to avoid showing them twice
+      const oneWayAnimals = allAnimals.filter(a => !a.isReciprocal);
+      
+      const sourceLabel = d.source.label || d.source.id;
+      const targetLabel = d.target.label || d.target.id;
+      
+      let htmlContent = `<strong>Route Summary: ${sourceLabel} to ${targetLabel}</strong><hr style="margin: 5px 0; border: none; border-top: 1px solid #ccc;"/>`;
+
+      // 1. Reciprocal Section
+      if (reciprocalAnimals.length > 0) {
+          // Remove duplicates since each reciprocal route was added twice (A->B and B->A)
+          const uniqueReciprocalNames = [...new Set(reciprocalAnimals.map(a => a.name))];
+          
+          htmlContent += `<strong>Reciprocal Routes <span class="green-text">(Two-Way $\\leftrightarrow$)</span>:</strong><br/>`;
+          htmlContent += uniqueReciprocalNames.map(name => 
+              `<span class="green-text">${name} $\\leftrightarrow$</span>`
+          ).join('<br/>') + '<br/>';
+      }
+
+      // 2. One-Way Section
+      if (oneWayAnimals.length > 0) {
+          htmlContent += `<br/><strong>One-Way Routes <span class="red-text">(Single Direction $\\rightarrow$)</span>:</strong><br/>`;
+          
+          // Group one-way routes by their direction relative to the drawn line's direction (d.originalSource -> d.originalTarget)
+          const oneWayList = oneWayAnimals.map(a => {
+              const directionSymbol = a.source === d.source.id ? '$\\rightarrow$' : '$\\leftarrow$';
+              return `<span class="red-text">${a.name} ${directionSymbol}</span>`;
+          }).join('<br/>');
+
+          htmlContent += oneWayList;
+      }
+      
+      if (reciprocalAnimals.length === 0 && oneWayAnimals.length === 0) {
+           htmlContent += "<em>No animal routes found.</em>";
+      }
+
+      return htmlContent;
+  }
+
 
   function updateTooltip(event, d, isNode) {
     let htmlContent;
     if (isNode) {
         htmlContent = `<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`;
     } else {
-        const sourceLabel = d.source.label || d.source.id;
-        const targetLabel = d.target.label || d.target.id;
-        
-        let status = d.isReciprocal ? 'Reciprocal (Two-way) - Green Line' : 'One-Way - Red Line';
-        
-        let animalsList = d.Animals.map(a => {
-            const direction = d.isReciprocal ? '↔' : '→';
-            const statusText = d.isReciprocal ? 'Reciprocal' : 'One-way';
-            const colorClass = d.isReciprocal ? 'green-text' : 'red-text';
-            return `<span class="${colorClass}">${a.name} ${direction}</span> (${statusText})`;
-        }).join('<br/>');
-
-        htmlContent = `<strong>Aggregated Route</strong><br/>
-                       ${sourceLabel} ${d.isReciprocal ? '↔' : '→'} ${targetLabel}<br/>
-                       Route Type: <span style="font-weight:bold; color: ${d.isReciprocal ? 'lightgreen' : 'red'};">${status}</span><br/>
-                       <hr style="margin: 5px 0; border: none; border-top: 1px solid #ccc;"/>
-                       <strong>Animals on this Route:</strong><br/>
-                       ${animalsList}`;
+        htmlContent = getLinkTooltipContent(d);
     }
     tooltip.style('display', 'block').html(htmlContent);
   }
@@ -575,7 +600,7 @@
   }
 
 
-  // --- Event Listeners (Omitted for brevity) ---
+  // --- Event Listeners ---
   link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
       .on('mousemove', moveTooltip).on('mouseout', handleLinkMouseOut)
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
@@ -596,53 +621,47 @@
     node.attr('transform', d => `translate(${d.x},${d.y})`);
 
     link.attr('d', d => {
-        // Use the proper source/target objects from the nodes array
         const sourceNode = d.source;
         const targetNode = d.target;
 
-        if (!sourceNode || !targetNode || !sourceNode.x || !targetNode.x) return null; // Safety check
+        if (!sourceNode || !targetNode || !sourceNode.x || !targetNode.x) return null; 
 
         const dx = targetNode.x - sourceNode.x;
         const dy = targetNode.y - sourceNode.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist === 0) return null;
         
-        // Get dynamic radius for link offsetting
         const rSource = d3.select(node.filter(n => n.id === sourceNode.id).node()).select('circle').attr('r') || mapBaseRadius;
         const rTarget = d3.select(node.filter(n => n.id === targetNode.id).node()).select('circle').attr('r') || mapBaseRadius;
         
-        // Calculate adjusted start/end points along the direct line
         const sx = sourceNode.x + (dx / dist) * rSource;
         const sy = sourceNode.y + (dy / dist) * rSource;
         const tx = targetNode.x - (dx / dist) * rTarget;
         const ty = targetNode.y - (dy / dist) * rTarget;
         
         const adjustedDist = dist - rSource - rTarget;
-
+        
+        // Curvature is only applied to one-way links (pathIndex > 0)
         if (d.isReciprocal) {
-            // **RECIPROCAL: STRAIGHT LINE**
+            // **RECIPROCAL: STRAIGHT LINE** (pathIndex 0)
              d.pathString = `M${sx},${sy}L${tx},${ty}`;
         } else {
-            // **ONE-WAY: CURVED LINE**
-            const pathTotal = d.pathTotal || 1;
-            const pathIndex = d.pathIndex || 0;
-            
+            // **ONE-WAY: CURVED LINE** (pathIndex 1 or 2)
+            const curvature = 0.5; // Reduced curvature for the two opposite curves
             let dr_factor;
             let arcFlag; 
             
-            const curvature = 1.2; 
+            // The two one-way lines will have pathIndex 1 and 2
+            const pathIndex = d.pathIndex || 1; // 1 or 2
+            
+            // Adjust factor to separate the two one-way lines symmetrically
+            // Index 1 (first one-way) gets negative offset, Index 2 (second one-way) gets positive offset
+            // We use 0.5 and -0.5 based on a total of 2 curves to keep them distinct from the straight line (index 0)
+            const offset = (pathIndex === 1) ? -0.5 : 0.5;
 
-            if (pathTotal === 1) {
-                // If only one path (reciprocal or one-way) between the nodes, use a minimal curve for one-way
-                dr_factor = adjustedDist * curvature * 0.2; // Small fixed curve
-                arcFlag = 0; 
-            } else {
-                const arcOffset = pathIndex - (pathTotal - 1) / 2;
-                
-                dr_factor = adjustedDist * curvature * arcOffset;
+            dr_factor = adjustedDist * curvature * offset;
 
-                arcFlag = arcOffset > 0 ? 0 : 1; 
-            }
+            arcFlag = offset > 0 ? 0 : 1; 
             
             const dr = adjustedDist + Math.abs(dr_factor); 
             
@@ -656,24 +675,10 @@
         return d.pathString;
     });
     
-    // Update link label position
-    linkLabel.attr('transform', d => {
-        // Use the path string stored on the data object
-        if (!d.pathString) return `translate(0, 0)`;
-
-        const tempPath = d3.select(document.createElementNS(d3.namespaces.svg, 'path')).attr('d', d.pathString);
-        
-        if (!tempPath.node()) return `translate(0, 0)`;
-
-        const totalLength = tempPath.node().getTotalLength();
-        const point = tempPath.node().getPointAtLength(totalLength / 2);
-        
-        // Label position is simply at the midpoint of the path
-        return `translate(${point.x}, ${point.y})`; 
-    });
+    // Remove link label position update since they are now empty/hidden
   });
 
-  // --- Filtering Logic (Omitted for brevity) ---
+  // --- Filtering Logic (omitted for brevity) ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
@@ -684,9 +689,14 @@
     let activeLinks = labeledLinks;
     let connectedNodeIds = new Set();
     
-    // 1. Filter by Animal: Link must contain the selected animal in its aggregated list
+    // 1. Filter by Animal: Links contain at least one route with the selected animal
     if (selectedAnimal !== 'all') {
-        activeLinks = activeLinks.filter(l => l.Animals.some(a => a.name === selectedAnimal));
+        const filteredCityPairs = new Set();
+        links.filter(l => l.Animals === selectedAnimal).forEach(l => {
+            filteredCityPairs.add([l.source, l.target].sort().join('|'));
+        });
+        
+        activeLinks = activeLinks.filter(l => filteredCityPairs.has(l.cityPair));
     }
 
     // 2. Filter by Reciprocal Status
@@ -708,21 +718,17 @@
         connectedNodeIds.add(l.target.id);
     });
 
-    // If no links are active, ensure selected city and its animals are still visible.
-    if (connectedNodeIds.size === 0) {
-        if (selectedCity !== 'all') {
-            connectedNodeIds.add(selectedCity);
-        } else if (selectedAnimal !== 'all') {
-             nodes.forEach(n => { 
-                if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
-             });
-        } else {
-            // Show all nodes if all filters are 'all' (default view)
-            nodes.forEach(n => connectedNodeIds.add(n.id));
-        }
-    } else if (selectedCity !== 'all' && !connectedNodeIds.has(selectedCity)) {
-        // Ensure the selected city is always visible even if its filtered links don't make it to the activeLinks list
+    // Handle nodes with no active links (e.g., node selected via city filter, or node with only animal filter match)
+    if (selectedCity !== 'all' && !connectedNodeIds.has(selectedCity)) {
         connectedNodeIds.add(selectedCity);
+    }
+    if (selectedAnimal !== 'all') {
+         nodes.forEach(n => { 
+            if(n.animals.includes(selectedAnimal)) connectedNodeIds.add(n.id); 
+         });
+    } else if (connectedNodeIds.size === 0 && selectedCity === 'all') {
+        // Show all nodes if no filters are active
+        nodes.forEach(n => connectedNodeIds.add(n.id));
     }
 
 
@@ -731,6 +737,7 @@
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
     
+    // The link label group is visually hidden by CSS (display: none), but we keep this transition for completeness
     linkLabel.transition().duration(duration)
       .style('opacity', d => activeLinks.includes(d) ? 1.0 : 0)
       .style('pointer-events', d => activeLinks.includes(d) ? 'auto' : 'none');
