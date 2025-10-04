@@ -26,7 +26,7 @@
 
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { 
-        font-size:10px;
+        /* NOTE: Font size set dynamically in updateNodeAndLinkStyles() */
         fill: #000; /* Black for readability on map */
         pointer-events:none; 
         text-anchor: middle;
@@ -208,9 +208,12 @@
   const mapMaxScaleRatio = 1.5; 
   const linkBaseWidthAbstract = 1.5; 
   const linkBaseWidthMap = 1.5;
-  // NEW: Link label sizes
   const linkLabelSizeMap = 4;
   const linkLabelSizeAbstract = 9;
+  // NEW: City label sizes
+  const cityLabelSizeMap = 4;
+  const cityLabelSizeAbstract = 10;
+
 
   const originalLinkStrength = 0.8;
   const originalChargeStrength = -150;
@@ -227,7 +230,7 @@
 
   let isMapMode = true;
 
-  // Function to dynamically update node radius, link width, and link label size
+  // Function to dynamically update node radius, link width, and all label sizes
   function updateNodeAndLinkStyles() {
       const transform = d3.zoomTransform(svg.node());
       
@@ -251,9 +254,14 @@
           }
       });
 
-      // Link Label Font Size Update (NEW LOGIC)
+      // Link Label Font Size Update
       linkLabel.select('text').style('font-size', d => {
           return isMapMode ? `${linkLabelSizeMap}px` : `${linkLabelSizeAbstract}px`;
+      });
+      
+      // NEW: City Label Font Size Update
+      node.select('text').style('font-size', d => {
+          return isMapMode ? `${cityLabelSizeMap}px` : `${cityLabelSizeAbstract}px`;
       });
 
 
@@ -331,7 +339,6 @@
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // The text element for the link label, font size is now set in JS
   linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle').text(d => d.Animals); 
 
   // --- Node Group ---
@@ -363,6 +370,7 @@
     );
 
   node.append('circle').attr('fill', '#3b82f6');
+  // Text element for the City Label, size is now set in JS
   node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
   // --- Zoom Logic ---
