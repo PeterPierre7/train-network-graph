@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network with Dynamic Arrowheads</title>
+<title>Train Network with Animal Filter</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
@@ -22,7 +22,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     <h3>Filter</h3>
     <label for="animalFilter">Animal:</label>
     <select id="animalFilter">
-      <option value="">All animals</option>
+      <option value="" selected disabled>Select an animal</option>
     </select>
   </div>
   <div id="chart"></div>
@@ -74,7 +74,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // Arrowhead definition
+  // Arrowhead
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead')
     .attr('viewBox', '0 -5 10 10')
@@ -141,31 +141,27 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 
   simulation.on('tick', ()=>{
     link.attr('d', d => {
-      // vector from source to target
       const dx = d.target.x - d.source.x;
       const dy = d.target.y - d.source.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
       const rSource = rScale(nodes.find(n=>n.id===d.source.id).degree);
       const rTarget = rScale(nodes.find(n=>n.id===d.target.id).degree);
-
       const ratioSource = rSource / dist;
       const ratioTarget = rTarget / dist;
-
       const sx = d.source.x + dx*ratioSource;
       const sy = d.source.y + dy*ratioSource;
       const tx = d.target.x - dx*ratioTarget;
       const ty = d.target.y - dy*ratioTarget;
-
-      const dr = dist*0.6; // curve radius
+      const dr = dist*0.6;
       return `M${sx},${sy}A${dr},${dr} 0 0,1 ${tx},${ty}`;
     });
-
     node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
 
-  // --- Animal filter ---
+  // Animal filter
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
+    // if no animal selected, do nothing (show all)
     const activeLinks = selectedAnimal 
       ? links.filter(l => l.Animals === selectedAnimal)
       : links;
