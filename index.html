@@ -59,7 +59,7 @@
     source: d.FromCity,
     target: d.ToCity,
     Animals: d.Animals,
-    RouteID: d.RouteID, // 👈 ADDED: Map the new RouteID column
+    RouteID: d.RouteID,
     isReciprocal: false
   }));
 
@@ -143,9 +143,9 @@
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([6, 24]);
 
   const simulation = d3.forceSimulation(nodes)
-    // UPDATED: Increased distance for more "give" in links (from 120 to 150)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(150).strength(0.8))
-    // UPDATED: Reduced negative strength to lessen repulsion of isolated nodes (from -250 to -150)
+    // 👇 MODIFIED: Increased distance for longer default link length (from 150 to 200)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8))
+    // Reduced negative strength to lessen repulsion of isolated nodes
     .force('charge', d3.forceManyBody().strength(-150))
     .force('center', d3.forceCenter(width/2, height/2))
     .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
@@ -186,12 +186,11 @@
     const targetLabel = d.target.label || d.target.id;
     const status = d.isReciprocal ? ' (Reciprocal Route)' : ' (One-Way Route)';
     
-    // 👇 UPDATED: Include RouteID in the tooltip
+    // Include RouteID in the tooltip
     tooltip.style('display', 'block')
       .html(`<strong>Route ID: ${d.RouteID}</strong><br/>
              ${sourceLabel} → ${targetLabel}${status}<br/>
              Animals: ${d.Animals}`);
-    // 👆 END UPDATED
   }
   function showTooltipNode(event, d) {
     tooltip.style('display', 'block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
@@ -219,6 +218,7 @@
         const tx = d.target.x - (dx / dist) * rTarget;
         const ty = d.target.y - (dy / dist) * rTarget;
         
+        // Arc radius is calculated relative to distance
         const dr = d.isReciprocal ? dist * 0.8 : dist * 0.8;
         
         // Logic to separate reciprocal arcs:
