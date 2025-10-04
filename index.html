@@ -48,24 +48,31 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 <script src="https://d3js.org/topojson.v3.min.js"></script>
 <script>
 (async function(){
+
+  // -----------------------------
+  // Load Data
+  // -----------------------------
   const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
   const nodesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const linksUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
   const worldUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
-  // Load data
   const [nodesRaw, linksRaw, worldData] = await Promise.all([
     d3.csv(nodesUrl),
     d3.csv(linksUrl),
     d3.json(worldUrl)
   ]);
 
+  // -----------------------------
+  // Process nodes and links
+  // -----------------------------
   const nodes = nodesRaw.map(d=>({
     id:d.CityID,
-    label:d.CityName||d.CityID,
+    label:d.CityName || d.CityID,
     lat:+d.Latitude,
     lon:+d.Longitude,
-    passengers:+(d.TotalPassengers||1)
+    passengers:+(d.TotalPassengers||1),
+    degree:0
   }));
 
   const links = linksRaw.map(d=>({
@@ -74,13 +81,12 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     weight:+(d.PassengersPerDay||1)
   }));
 
-  // Compute degree for cities
-  nodes.forEach(n=>n.degree=0);
+  // Compute degree
   links.forEach(l=>{
-    const s=nodes.find(n=>n.id===l.source);
-    const t=nodes.find(n=>n.id===l.target);
-    if(s) s.degree+=1;
-    if(t) t.degree+=1;
+    const s = nodes.find(n=>n.id===l.source);
+    const t = nodes.find(n=>n.id===l.target);
+    if(s) s.degree +=1;
+    if(t) t.degree +=1;
   });
 
   // Populate city filter
@@ -89,17 +95,21 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     cityDropdown.append('option').attr('value',d.id).text(d.label);
   });
 
-  // SVG
+  // -----------------------------
+  // SVG and projection
+  // -----------------------------
   const container = d3.select('#chart');
   let width = container.node().clientWidth;
   let height = container.node().clientHeight;
-  const svg = container.append('svg').attr('width',width).attr('height',height);
 
-  // Map projection
+  const svg = container.append('svg')
+    .attr('width', width)
+    .attr('height', height);
+
   const projection = d3.geoNaturalEarth1().fitSize([width,height], topojson.feature(worldData, worldData.objects.countries));
   const path = d3.geoPath(projection);
 
-  // Draw world
+  // Draw world map
   svg.append("g")
     .selectAll("path")
     .data(topojson.feature(worldData, worldData.objects.countries).features)
@@ -108,12 +118,16 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     .attr("fill","#e0e0e0")
     .attr("stroke","#999");
 
+  // -----------------------------
   // Scales
+  // -----------------------------
   const rScaleCity = d3.scaleSqrt().domain(d3.extent(nodes,d=>d.degree)).range([6,24]);
   const rScaleTrain = d3.scaleSqrt().domain(d3.extent(nodes,d=>d.passengers)).range([6,24]);
   const linkWidth = d3.scaleLinear().domain(d3.extent(links,d=>d.weight)).range([1,5]);
 
-  // Simulation with forceXY to map positions to lat/lon
+  // -----------------------------
+  // Simulation
+  // -----------------------------
   const simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(links).id(d=>d.id).distance(50).strength(0.8))
     .force("charge", d3.forceManyBody().strength(-20))
@@ -121,19 +135,20 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     .force("x", d3.forceX(d=>projection([d.lon,d.lat])[0]).strength(1))
     .force("y", d3.forceY(d=>projection([d.lon,d.lat])[1]).strength(1));
 
-  // Links
+  // -----------------------------
+  // Draw links and nodes
+  // -----------------------------
   let link = svg.append('g').attr('class','links').selectAll('line')
     .data(links).join('line')
     .attr('class','link')
     .attr('stroke-width',d=>linkWidth(d.weight));
 
-  // Nodes
   let node = svg.append('g').attr('class','nodes').selectAll('g')
     .data(nodes).join('g')
     .call(d3.drag()
-      .on('start',(event,d)=>{if(!event.active)simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y;})
+      .on('start',(event,d)=>{if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y;})
       .on('drag',(event,d)=>{d.fx=event.x; d.fy=event.y;})
-      .on('end',(event,d)=>{if(!event.active)simulation.alphaTarget(0); d.fx=null; d.fy=null;})
+      .on('end',(event,d)=>{if(!event.active) simulation.alphaTarget(0); d.fx=null; d.fy=null;})
     );
 
   node.append('circle')
@@ -150,7 +165,9 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     .attr('y',4)
     .style('font-size','10px');
 
+  // -----------------------------
   // Tooltip
+  // -----------------------------
   const tooltip = d3.select('#tooltip');
   function showTooltip(event,d){
     const mode = d3.select('#modeSelect').property('value');
@@ -161,12 +178,18 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   function moveTooltip(event){ tooltip.style.left=(event.pageX+12)+'px'; tooltip.style.top=(event.pageY+12)+'px'; }
   function hideTooltip(event,d){ tooltip.style.display='none'; d3.select(event.currentTarget).attr('stroke','#fff').attr('stroke-width',1.2); }
 
+  // -----------------------------
+  // Simulation tick
+  // -----------------------------
   simulation.on('tick',()=>{
     link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
         .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
     node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
 
+  // -----------------------------
+  // Update function
+  // -----------------------------
   function updateGraph(){
     const mode = d3.select('#modeSelect').property('value');
     const selectedCity = d3.select('#cityFilter').property('value');
@@ -181,11 +204,16 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     simulation.force('link').links(filteredLinks);
     simulation.alpha(0.5).restart();
 
-    // Update link elements
     link = svg.select('g.links').selectAll('line').data(filteredLinks,d=>d.source+'-'+d.target).join('line').attr('class','link').attr('stroke-width',d=>linkWidth(d.weight));
-
-    // Update nodes
     node = svg.select('g.nodes').selectAll('g').data(filteredNodes,d=>d.id).join('g')
       .call(d3.drag()
         .on('start',(event,d)=>{if(!event.active)simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y;})
-        .on('
+        .on('drag',(event,d)=>{d.fx=event.x; d.fy=event.y;})
+        .on('end',(event,d)=>{if(!event.active)simulation.alphaTarget(0); d.fx=null; d.fy=null;})
+      );
+
+    node.append('circle')
+      .attr('r',d=>mode==='city'? rScaleCity(d.degree):rScaleTrain(d.passengers))
+      .attr('fill','#3b82f6')
+      .attr('class','node')
+     
