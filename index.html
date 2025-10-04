@@ -237,9 +237,11 @@
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
 
-
-  const originalLinkStrength = 0.8;
-  const originalChargeStrength = -150;
+  // CHANGE: Augmented node attraction (more negative)
+  const originalChargeStrength = -250; 
+  // CHANGE: Reduced link strength (less rigid)
+  const originalLinkStrength = 0.5;
+  
   const originalCollisionRadius = 5;
 
   const simulation = d3.forceSimulation(nodes)
@@ -306,6 +308,7 @@
           d.fy = null;
       });
 
+      // NOTE: Using the augmented and reduced strength variables here
       simulation
           .force('link').strength(originalLinkStrength);
       simulation
@@ -361,7 +364,7 @@
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // CHANGE: Link label only shows Animal type (ID is removed from the visible label)
+  // Link label only shows Animal type (ID is removed from the visible label)
   linkLabel.append('text').attr('dy', -3).attr('text-anchor', 'middle')
       .text(d => d.Animals); 
 
@@ -435,12 +438,10 @@
         
         let status;
         if (d.isReciprocal) {
-             // CHANGE: Ensure correct display of IDs in the tooltip for reciprocal routes
              const idA = d.RouteID;
              const idB = d.otherRouteID;
              status = `(Reciprocal Route: IDs ${idA} & ${idB})`;
         } else {
-             // Non-reciprocal route: only show its own ID
              status = `(One-Way Route: ID ${d.RouteID})`;
         }
 
