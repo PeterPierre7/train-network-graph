@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network</title>
+<title>Train Network - Curved Links Fixed</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
     body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
@@ -72,12 +72,8 @@
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
   
-  // --- Populate Animal dropdown ---
   const animalDropdown = d3.select('#animalFilter');
-  // ADDED: "Show All" option to reset the filter
-  animalDropdown.append('option')
-    .attr('value', 'all')
-    .text('Show All');
+  animalDropdown.append('option').attr('value', 'all').text('Show All');
   Array.from(animalSet).sort().forEach(a => {
     animalDropdown.append('option').attr('value', a).text(a);
   });
@@ -87,14 +83,14 @@
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // ADDED: Arrowhead definition for links
+  // --- FIX: Correctly configured arrowhead marker ---
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead')
     .attr('viewBox', '-0 -5 10 10')
-    .attr('refX', 18) // Adjust position to not overlap the node circle
+    .attr('refX', 10) // Position arrow tip at the end of the line
     .attr('refY', 0)
-    .attr('markerWidth', 5)
-    .attr('markerHeight', 5)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
     .attr('orient', 'auto')
     .append('path')
     .attr('d', 'M0,-5L10,0L0,5')
@@ -106,7 +102,7 @@
     .force('link', d3.forceLink(links).id(d => d.id).distance(120).strength(0.8))
     .force('charge', d3.forceManyBody().strength(-250))
     .force('center', d3.forceCenter(width/2, height/2))
-    .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 4));
+    .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
 
   const link = svg.append('g').attr('class', 'links')
     .selectAll('path')
@@ -115,7 +111,7 @@
     .attr('class', 'link')
     .attr('stroke-width', 2.5)
     .attr('stroke', '#999')
-    .attr('marker-end', 'url(#arrowhead)'); // Apply arrowhead
+    .attr('marker-end', 'url(#arrowhead)');
 
   const node = svg.append('g').attr('class', 'nodes')
     .selectAll('g')
@@ -138,41 +134,53 @@
     .attr('y', 4);
 
   const tooltip = d3.select('#tooltip');
-
-  // ADDED: Tooltip function for links
   function showTooltipLink(event, d) {
     const sourceLabel = d.source.label || d.source.id;
     const targetLabel = d.target.label || d.target.id;
     tooltip.style('display', 'block')
       .html(`<strong>${sourceLabel} → ${targetLabel}</strong><br/>Animals: ${d.Animals}`);
   }
-
   function showTooltipNode(event, d) {
     tooltip.style('display', 'block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
     d3.select(event.currentTarget).attr('stroke', '#000').attr('stroke-width', 2);
   }
-
   function moveTooltip(event) { tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); }
   function hideTooltipLink() { tooltip.style('display', 'none'); }
   function hideTooltipNode(event, d) { 
     tooltip.style('display', 'none'); 
     d3.select(event.currentTarget).attr('stroke', '#fff').attr('stroke-width', 1.5); 
   }
-
   link.on('mouseover', showTooltipLink).on('mousemove', moveTooltip).on('mouseout', hideTooltipLink);
   node.select('circle').on('mouseover', showTooltipNode).on('mousemove', moveTooltip).on('mouseout', hideTooltipNode);
 
+  // --- FIX: Re-implement curved path with correct end-points ---
   simulation.on('tick', () => {
-    link.attr('d', d => `M${d.source.x},${d.source.y}L${d.target.x},${d.target.y}`);
+    link.attr('d', d => {
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist === 0) return null;
+
+        const rSource = rScale(d.source.degree);
+        const rTarget = rScale(d.target.degree);
+        
+        // Calculate the point on the edge of the source circle
+        const sx = d.source.x + (dx / dist) * rSource;
+        const sy = d.source.y + (dy / dist) * rSource;
+        
+        // Calculate the point on the edge of the target circle
+        const tx = d.target.x - (dx / dist) * rTarget;
+        const ty = d.target.y - (dy / dist) * rTarget;
+
+        const dr = dist * 0.8; // Adjust this value for more or less curve
+        return `M${sx},${sy}A${dr},${dr} 0 0,1 ${tx},${ty}`;
+    });
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // UPDATED: Animal filter logic to handle "Show All"
   animalDropdown.on('change', function() {
     const selectedAnimal = this.value;
-
     if (selectedAnimal === 'all') {
-      // Reset all elements to their default appearance
       link
         .attr('stroke', '#999')
         .attr('stroke-opacity', 1.0)
@@ -180,7 +188,6 @@
       node.select('circle')
         .attr('fill', '#3b82f6');
     } else {
-      // Apply the filter
       const activeLinks = links.filter(l => l.Animals === selectedAnimal);
       const connectedNodeIds = new Set();
       activeLinks.forEach(l => {
