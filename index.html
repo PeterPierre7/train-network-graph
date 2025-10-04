@@ -742,28 +742,26 @@
         return d.pathString;
     });
 
-    // *** MODIFIED: Position the link labels with perpendicular offset and no rotation ***
+    // *** MODIFIED: Position the link labels with perpendicular offset and NO fixed vertical screen offset ***
     linkLabel.attr('transform', function(d) {
         if (!d.midpoint) return 'translate(0,0)'; 
         
         const [mx, my] = d.midpoint;
         const angle = d.angle; // Angle in radians
         
-        // Base screen offset (upwards) to clear the link path
-        const fixedVerticalScreenOffset = -15; 
-        
-        // Perpendicular offset magnitude to separate parallel labels
-        // Index 0: Center, Index 1: Left/Down, Index 2: Right/Up
-        const perpendicularOffsetMagnitude = (d.pathIndex - 1) * 15; // -15, 0, or 15
+        // Perpendicular offset magnitude based on pathIndex: 
+        // Index 0: Center (0), Index 1: One side (-20), Index 2: Other side (+20)
+        const perpendicularOffsetMagnitude = (d.pathIndex - 1) * 20; 
         
         // Calculate the perpendicular translation vector (normal to the path)
-        // dx_perp = magnitude * cos(angle + 90 deg) = magnitude * -sin(angle)
-        // dy_perp = magnitude * sin(angle + 90 deg) = magnitude * cos(angle)
+        // offsetX_perp = magnitude * cos(angle + 90 deg) = magnitude * -sin(angle)
+        // offsetY_perp = magnitude * sin(angle + 90 deg) = magnitude * cos(angle)
         const offsetX_perp = perpendicularOffsetMagnitude * (-Math.sin(angle));
         const offsetY_perp = perpendicularOffsetMagnitude * (Math.cos(angle));
 
-        // The final label position is the midpoint + perpendicular offset + fixed vertical offset (for text clearance)
-        return `translate(${mx + offsetX_perp}, ${my + offsetY_perp + fixedVerticalScreenOffset})`;
+        // The final label position is the midpoint + perpendicular offset.
+        // This ensures the label moves perpendicular to the link, staying "snapped" to its visual path.
+        return `translate(${mx + offsetX_perp}, ${my + offsetY_perp})`;
     })
     .style('opacity', d => link.filter(l => l === d).style('opacity')); // Match link visibility
   });
