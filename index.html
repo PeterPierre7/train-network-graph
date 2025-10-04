@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network - Disappearing Nodes</title>
+<title>Train Network - Geographical Layout</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
     body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
@@ -10,16 +10,26 @@
     #controls { width:220px; background:#f8f9fa; padding:15px; border-right:1px solid #ccc; box-sizing:border-box; }
     #controls select { width: 100%; margin-bottom: 15px; padding: 5px; }
     #chart { flex:1; height:100vh; }
+    
+    /* NEW: Map Styles */
+    .country {
+        fill: #e0e0e0; /* Light gray for land */
+        stroke: #ccc;
+        stroke-width: 0.5px;
+    }
+    .sphere {
+        fill: #f0f8ff; /* Light blue for ocean */
+    }
+
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { 
-        font-size:10px; /* Smaller font size for inside the circle */
-        fill: #fff; /* White text for contrast inside the blue circle */
+        font-size:10px;
+        fill: #fff;
         pointer-events:none; 
-        text-anchor: middle; /* Center the text horizontally */
-        dominant-baseline: central; /* Center the text vertically */
+        text-anchor: middle;
+        dominant-baseline: central;
     }
     .link { fill:none; cursor:pointer; }
-    /* Style for the link labels */
     .link-label text {
         font-size: 11px;
         font-weight: bold;
@@ -58,20 +68,29 @@
 <div class="tooltip" id="tooltip"></div>
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://unpkg.com/topojson-client@3"></script>
 <script>
 (async function(){
 
   const sheetId = '1TKsoH-CVhXjJ7vMptfTukRO6wWO_1KGpS76yHu29Omc';
   const citiesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Cities`;
   const routesUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=TrainRoutes`;
-
+  
+  // NEW: Load TopoJSON data for the world map
+  const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
+  
   const [nodesRaw, linksRaw] = await Promise.all([d3.csv(citiesUrl), d3.csv(routesUrl)]);
 
   const nodes = nodesRaw.map(d => ({
     id: d.CityName,
     label: d.CityName,
     animals: d.HouseAnimals ? d.HouseAnimals.split(',').map(a => a.trim()) : [],
-    degree: 0
+    // NEW: Parse location data
+    longitude: +d.Longitude, 
+    latitude: +d.Latitude,
+    degree: 0,
+    fx: null, // Fixed X position for geographic layout
+    fy: null  // Fixed Y position for geographic layout
   }));
 
   const links = linksRaw.map(d => ({
@@ -89,21 +108,18 @@
     if(t) t.degree += 1;
   });
 
-  // LOGIC: Identify and flag reciprocal links
+  // LOGIC: Identify and flag reciprocal links (omitted for brevity, assume this runs)
   const linkKeyMap = {};
   links.forEach(link => {
       const directionalKey = `${link.source}|${link.target}|${link.Animals}`;
       const reverseKey = `${link.target}|${link.source}|${link.Animals}`;
-
       if (linkKeyMap[reverseKey]) {
           link.isReciprocal = true;
           linkKeyMap[reverseKey].isReciprocal = true;
       }
-      
       linkKeyMap[directionalKey] = link;
   });
 
-  // Filter links for unique reciprocal label display
   const labeledLinks = links.filter(d => {
       if (d.isReciprocal) {
           const [cityA, cityB] = [d.source, d.target].sort();
@@ -112,7 +128,7 @@
       return true;
   });
 
-  // --- Dropdown Population ---
+  // --- Dropdown Population (omitted for brevity, assume this runs) ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -135,42 +151,54 @@
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
   const g = svg.append('g'); 
+  
+  // --- NEW: Map Projection and Drawing ---
+  const projection = d3.geoMercator()
+      .fitSize([width, height], topojson.feature(world, world.objects.countries));
 
-  // Define arrowheads
-  g.append('defs').append('marker')
-    .attr('id', 'arrowhead-green')
-    .attr('viewBox', '-0 -5 10 10')
-    .attr('refX', 10)
-    .attr('refY', 0)
-    .attr('markerWidth', 6)
-    .attr('markerHeight', 6)
-    .attr('orient', 'auto')
-    .append('path')
-    .attr('d', 'M0,-5L10,0L0,5')
-    .attr('fill', 'green');
+  const path = d3.geoPath().projection(projection);
 
-  g.append('defs').append('marker')
-    .attr('id', 'arrowhead-red')
-    .attr('viewBox', '-0 -5 10 10')
-    .attr('refX', 10)
-    .attr('refY', 0)
-    .attr('markerWidth', 6)
-    .attr('markerHeight', 6)
-    .attr('orient', 'auto')
-    .append('path')
-    .attr('d', 'M0,-5L10,0L0,5')
-    .attr('fill', 'red');
+  // Draw Sphere (Ocean)
+  g.append("path")
+      .attr("class", "sphere")
+      .attr("d", path({type: "Sphere"}));
 
-  // 👇 MODIFIED: Changed the starting range of the radius scale from 6 to 12.
-  // The scale now ranges from 12px (min degree) to 24px (max degree).
+  // Draw Countries (Land)
+  g.append("g")
+      .attr("class", "countries")
+      .selectAll("path")
+      .data(topojson.feature(world, world.objects.countries).features)
+      .join("path")
+      .attr("class", "country")
+      .attr("d", path);
+
+  // Calculate projected coordinates for each node and fix them
+  nodes.forEach(d => {
+      if (d.longitude && d.latitude) {
+          const [x, y] = projection([d.longitude, d.latitude]);
+          d.x = x;
+          d.y = y;
+          d.fx = x; // Fix the position based on the map
+          d.fy = y; // Fix the position based on the map
+      }
+  });
+
+  // --- Force Simulation (Greatly Reduced) ---
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
-  // 👆 END MODIFIED
 
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.8)) 
-    .force('charge', d3.forceManyBody().strength(-150)) 
-    .force('center', d3.forceCenter(width/2, height/2))
-    .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
+      // Only keep the link force, greatly reduced strength
+      .force('link', d3.forceLink(links).id(d => d.id).distance(200).strength(0.05)) 
+      // Removed forceCenter, forceCharge, and forceCollide
+      .alpha(0.1).alphaTarget(0).restart();
+  // ----------------------------------------
+  
+  // Define arrowheads (omitted for brevity, assume this runs)
+  g.append('defs').append('marker')
+    .attr('id', 'arrowhead-green').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
+  g.append('defs').append('marker')
+    .attr('id', 'arrowhead-red').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'red');
+
 
   // --- Link Path Drawing Group ---
   const link = g.append('g').attr('class', 'links')
@@ -203,15 +231,21 @@
     .call(d3.drag()
       .on('start', (event,d) => { 
           if(!event.active) simulation.alphaTarget(0.3).restart(); 
+          // Allow dragging, but fix it back to its geo-position on end
           d.fx=d.x; d.fy=d.y; 
       })
       .on('drag', (event,d) => { 
           d.fx=event.x; d.fy=event.y; 
-          d3.select(this).attr("transform", `translate(${d.fx},${d.fy})`);
       })
       .on('end', (event,d) => { 
+          // NEW: Snap the node back to its geographical position after drag
           if(!event.active) simulation.alphaTarget(0); 
-          d.fx=null; d.fy=null; 
+          const [x, y] = projection([d.longitude, d.latitude]);
+          d.fx = x;
+          d.fy = y;
+          d.x = x;
+          d.y = y;
+          simulation.restart();
       })
     );
 
@@ -226,7 +260,7 @@
 
   // --- Zoom Logic ---
   const zoom = d3.zoom()
-      .scaleExtent([0.1, 4]) 
+      .scaleExtent([0.5, 8]) // Adjusted scale extent for map viewing
       .on('zoom', (event) => {
           g.attr('transform', event.transform);
           if (currentTooltipLock || d3.select('#tooltip').style('display') === 'block') {
@@ -241,11 +275,24 @@
   const tooltip = d3.select('#tooltip');
   let currentTooltipLock = null; 
 
+  // --- Tooltip Logic (Omitted for brevity, using previous implementation) ---
+  function dismissLock() { /* ... */ }
+  function updateTooltip(event, d, isNode) { /* ... */ }
+  function handleLinkInteraction(event, d) { /* ... */ }
+  function handleLinkMouseOut() { /* ... */ }
+  function handleNodeInteraction(event, d, circleElement) { /* ... */ }
+  function handleNodeMouseOut(event, d, circleElement) { /* ... */ }
+  function moveTooltip(event) {
+    const x = event.sourceEvent ? event.sourceEvent.pageX : event.pageX;
+    const y = event.sourceEvent ? event.sourceEvent.pageY : event.pageY;
+    tooltip.style('left', (x + 12) + 'px').style('top', (y + 12) + 'px'); 
+  }
+  
+  // Re-define placeholder functions to keep the script runnable
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
-              node.select('circle').filter(n => n === currentTooltipLock)
-                   .attr('stroke', '#fff').attr('stroke-width', 1.5);
+              node.select('circle').filter(n => n === currentTooltipLock).attr('stroke', '#fff').attr('stroke-width', 1.5);
           }
           currentTooltipLock = null;
       }
@@ -253,7 +300,6 @@
 
   function updateTooltip(event, d, isNode) {
     let htmlContent;
-    
     if (isNode) {
         htmlContent = `<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`;
     } else {
@@ -264,46 +310,26 @@
                        ${sourceLabel} → ${targetLabel}${status}<br/>
                        Animals: ${d.Animals}`;
     }
-
-    tooltip.style('display', 'block')
-           .html(htmlContent);
+    tooltip.style('display', 'block').html(htmlContent);
   }
 
   function handleLinkInteraction(event, d) {
-      if (currentTooltipLock && currentTooltipLock.id) {
-          dismissLock();
-      }
-      
+      if (currentTooltipLock && currentTooltipLock.id) { dismissLock(); }
       updateTooltip(event, d, false);
       moveTooltip(event);
-      
       if (currentTooltipLock === d) {
           currentTooltipLock = null;
           tooltip.style('display', 'none');
-      } else if (event.type === 'click') {
-          currentTooltipLock = d;
-      }
+      } else if (event.type === 'click') { currentTooltipLock = d; }
   }
-
   function handleLinkMouseOut() {
-      if (currentTooltipLock === null) {
-          tooltip.style('display', 'none');
-      }
+      if (currentTooltipLock === null) { tooltip.style('display', 'none'); }
   }
-  
   function handleNodeInteraction(event, d, circleElement) {
-      if (currentTooltipLock && !currentTooltipLock.id) {
-          dismissLock();
-      }
-      
-      if (currentTooltipLock && currentTooltipLock.id) {
-          node.select('circle').filter(n => n === currentTooltipLock)
-               .attr('stroke', '#fff').attr('stroke-width', 1.5);
-      }
-      
+      if (currentTooltipLock && !currentTooltipLock.id) { dismissLock(); }
+      if (currentTooltipLock && currentTooltipLock.id) { node.select('circle').filter(n => n === currentTooltipLock).attr('stroke', '#fff').attr('stroke-width', 1.5); }
       updateTooltip(event, d, true);
       moveTooltip(event);
-      
       if (currentTooltipLock === d) {
           d3.select(circleElement).attr('stroke', '#fff').attr('stroke-width', 1.5);
           currentTooltipLock = null;
@@ -312,45 +338,25 @@
           currentTooltipLock = d;
           d3.select(circleElement).attr('stroke', '#000').attr('stroke-width', 2);
       } else if (event.type === 'mouseover') {
-          if (currentTooltipLock !== d) {
-             d3.select(circleElement).attr('stroke', '#000').attr('stroke-width', 2);
-          }
+          if (currentTooltipLock !== d) { d3.select(circleElement).attr('stroke', '#000').attr('stroke-width', 2); }
       }
   }
-
   function handleNodeMouseOut(event, d, circleElement) {
-      if (currentTooltipLock !== d) {
-          d3.select(circleElement).attr('stroke', '#fff').attr('stroke-width', 1.5);
-      }
-      
-      if (currentTooltipLock === null) {
-          tooltip.style('display', 'none');
-      }
+      if (currentTooltipLock !== d) { d3.select(circleElement).attr('stroke', '#fff').attr('stroke-width', 1.5); }
+      if (currentTooltipLock === null) { tooltip.style('display', 'none'); }
   }
 
-  function moveTooltip(event) {
-    const x = event.sourceEvent ? event.sourceEvent.pageX : event.pageX;
-    const y = event.sourceEvent ? event.sourceEvent.pageY : event.pageY;
-
-    tooltip.style('left', (x + 12) + 'px')
-           .style('top', (y + 12) + 'px'); 
-  }
-
-  // --- Event Listeners ---
-  
+  // --- Event Listeners (omitted for brevity, assume this runs) ---
   link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
-      .on('mousemove', moveTooltip)
-      .on('mouseout', handleLinkMouseOut)
+      .on('mousemove', moveTooltip).on('mouseout', handleLinkMouseOut)
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
 
-  node.select('circle')
-      .on('mouseover', function(event, d) { handleNodeInteraction(event, d, this); })
-      .on('mousemove', moveTooltip)
-      .on('mouseout', function(event, d) { handleNodeMouseOut(event, d, this); })
+  node.select('circle').on('mouseover', function(event, d) { handleNodeInteraction(event, d, this); })
+      .on('mousemove', moveTooltip).on('mouseout', function(event, d) { handleNodeMouseOut(event, d, this); })
       .on('click', function(event, d) { handleNodeInteraction(event, d, this); });
 
   svg.on('click', (event) => {
-    if (event.target.tagName === 'svg' || event.target.tagName === 'rect' && d3.select(event.target).attr('class') === 'overlay') {
+    if (event.target.tagName === 'svg' || event.target.tagName === 'path' || event.target.tagName === 'rect' && d3.select(event.target).attr('class') === 'overlay') {
         dismissLock();
         tooltip.style('display', 'none');
     }
@@ -358,6 +364,9 @@
 
 
   simulation.on('tick', () => {
+    // We rely on the initial fixed position (d.fx, d.fy) for nodes, 
+    // so we only update link paths and labels based on the fixed node positions (d.x, d.y)
+    
     link.attr('d', d => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
@@ -388,21 +397,21 @@
         d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
         return d.pathString;
     });
+    
+    // Node position is now fixed by d.fx and d.fy set outside of the tick function
     node.attr('transform', d => `translate(${d.x},${d.y})`);
 
+    // Update link label position
     linkLabel.attr('transform', d => {
         const path = link.filter(p => p.source.id === d.source.id && p.target.id === d.target.id && p.Animals === d.Animals).node();
         if (!path) return `translate(0, 0)`;
-
         const totalLength = path.getTotalLength();
         const point = path.getPointAtLength(totalLength / 2);
-        
         return `translate(${point.x}, ${point.y})`;
     });
   });
 
-  // --- Filtering Logic (Combined Handler) ---
-  
+  // --- Filtering Logic (Omitted for brevity, assume this runs) ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
@@ -467,12 +476,33 @@
   animalDropdown.on('change', updateVisualization);
   cityDropdown.on('change', updateVisualization);
   
+  // Resize handler updated to re-fit the projection
   window.addEventListener('resize', () => {
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
-    simulation.force('center', d3.forceCenter(w/2, h/2));
-    simulation.alpha(0.3).restart();
+    
+    // Re-fit the projection to the new size
+    projection.fitSize([w, h], topojson.feature(world, world.objects.countries));
+    
+    // Re-draw map paths
+    g.selectAll(".sphere").attr("d", path({type: "Sphere"}));
+    g.selectAll(".country").attr("d", path);
+
+    // Re-calculate and fix node positions
+    nodes.forEach(d => {
+        if (d.longitude && d.latitude) {
+            const [x, y] = projection([d.longitude, d.latitude]);
+            d.fx = d.x = x;
+            d.fy = d.y = y;
+        }
+    });
+
+    // Rerender positions without simulation (since they are fixed)
+    simulation.alpha(0.1).alphaTarget(0).restart(); // Restart to re-run tick once
   });
+  
+  // Initial restart to apply new positions
+  simulation.alpha(1).restart(); 
 
 })();
 </script>
