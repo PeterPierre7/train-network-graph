@@ -35,18 +35,16 @@
     }
     .link { fill:none; cursor:pointer; }
     
-    /* *** MODIFIED STYLE: Make link labels visible and style them *** */
+    /* *** Link label styles *** */
     .link-label text { 
         font-size: 8px; /* Small font size for links */
         fill: #000; 
         pointer-events: none; /* Crucial: allows clicking on the link path underneath */
         text-anchor: middle;
-        /* Center text vertically around the point */
         dominant-baseline: central; 
         text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; 
         font-weight: bold;
     }
-    /* Set color for reciprocal/one-way text */
     .link-label .reciprocal { fill: green; }
     .link-label .one-way { fill: red; }
 
@@ -259,19 +257,19 @@
       const oneWayLinks = group.filter(l => !l.isReciprocal);
 
       if (reciprocalLink) {
-          reciprocalLink.pathIndex = 0; // The single straight line
+          reciprocalLink.pathIndex = 0; // The single straight line (center position)
       }
       
       // Sort one-way links consistently
       oneWayLinks.sort((a, b) => a.directionKey.localeCompare(b.directionKey));
 
       oneWayLinks.forEach((link, index) => {
-          // pathIndex 1 and 2 for the two parallel curves
+          // pathIndex 1 and 2 for the two parallel curves (outer positions)
           link.pathIndex = index + 1; 
       });
   });
 
-  // --- Dropdown Population (omitted for brevity) ---
+  // --- Dropdown Population ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -297,7 +295,7 @@
 
   const g = svg.append('g'); 
   
-  // --- Map Projection and Drawing (omitted for brevity) ---
+  // --- Map Projection and Drawing ---
   const projection = d3.geoMercator()
       .fitSize([width, height], topojson.feature(world, world.objects.countries));
 
@@ -328,7 +326,7 @@
   }
   setGeographicalPositions(); 
 
-  // --- Force Simulation Configuration and Layout Toggle (omitted for brevity) ---
+  // --- Force Simulation Configuration and Layout Toggle ---
   const rScaleAbstract = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
   
   const mapBaseRadius = 4;
@@ -512,7 +510,7 @@
         });
     });
 
-  // --- Node Group (omitted for brevity) ---
+  // --- Node Group ---
   const node = g.append('g').attr('class', 'nodes')
     .selectAll('g').data(nodes).join('g').attr('class', 'node')
     .call(d3.drag()
@@ -543,7 +541,7 @@
   node.append('circle').attr('fill', '#3b82f6');
   node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
-  // --- Zoom Logic and Tooltip (omitted for brevity) ---
+  // --- Zoom Logic and Tooltip ---
   const zoom = d3.zoom()
       .scaleExtent([0.5, 8]) 
       .on('zoom', (event) => {
@@ -569,7 +567,7 @@
       }
   }
   
-  // Function to create the aggregated tooltip content (FIXED)
+  // Function to create the aggregated tooltip content 
   function getLinkTooltipContent(d) {
       const cityPair = d.cityPair; 
       const allAnimals = aggregatedAnimals[cityPair] || [];
@@ -670,7 +668,7 @@
   }
 
 
-  // --- Event Listeners (omitted for brevity) ---
+  // --- Event Listeners ---
   link.on('mouseover', function(event, d) { handleLinkInteraction(event, d); })
       .on('mousemove', moveTooltip).on('mouseout', handleLinkMouseOut)
       .on('click', function(event, d) { handleLinkInteraction(event, d); });
@@ -742,31 +740,36 @@
         return d.pathString;
     });
 
-    // *** MODIFIED: Position the link labels with perpendicular offset and NO fixed vertical screen offset ***
+    // *** MODIFIED LOGIC FOR LABEL POSITIONING ***
     linkLabel.attr('transform', function(d) {
         if (!d.midpoint) return 'translate(0,0)'; 
         
         const [mx, my] = d.midpoint;
         const angle = d.angle; // Angle in radians
         
-        // Perpendicular offset magnitude based on pathIndex: 
-        // Index 0: Center (0), Index 1: One side (-20), Index 2: Other side (+20)
-        const perpendicularOffsetMagnitude = (d.pathIndex - 1) * 20; 
+        let perpendicularOffsetMagnitude;
+        if (d.pathIndex === 0) {
+            // Index 0 (Reciprocal/Straight line) -> Center the label on the path (zero offset)
+            perpendicularOffsetMagnitude = 0;
+        } else if (d.pathIndex === 1) {
+            // Index 1 (One-way/Curve 1) -> Offset to match the curve's visual center
+            perpendicularOffsetMagnitude = -25; // Negative offset for one curve
+        } else { // d.pathIndex === 2
+            // Index 2 (One-way/Curve 2) -> Offset to match the other curve's visual center
+            perpendicularOffsetMagnitude = 25; // Positive offset for the other curve
+        }
         
         // Calculate the perpendicular translation vector (normal to the path)
-        // offsetX_perp = magnitude * cos(angle + 90 deg) = magnitude * -sin(angle)
-        // offsetY_perp = magnitude * sin(angle + 90 deg) = magnitude * cos(angle)
         const offsetX_perp = perpendicularOffsetMagnitude * (-Math.sin(angle));
         const offsetY_perp = perpendicularOffsetMagnitude * (Math.cos(angle));
 
         // The final label position is the midpoint + perpendicular offset.
-        // This ensures the label moves perpendicular to the link, staying "snapped" to its visual path.
         return `translate(${mx + offsetX_perp}, ${my + offsetY_perp})`;
     })
     .style('opacity', d => link.filter(l => l === d).style('opacity')); // Match link visibility
   });
 
-  // --- Filtering Logic (omitted for brevity) ---
+  // --- Filtering Logic ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
@@ -855,7 +858,7 @@
   cityDropdown.on('change', updateVisualization);
   reciprocalDropdown.on('change', updateVisualization);
   
-  // Resize handler (omitted for brevity)
+  // Resize handler
   window.addEventListener('resize', () => {
     const w = container.node().clientWidth, h = container.node().clientHeight;
     svg.attr('width', w).attr('height', h);
