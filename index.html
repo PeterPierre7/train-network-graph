@@ -2,12 +2,34 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Train Network Graph with City Filter</title>
+  <title>Train Network Graph with City Filter and Link-Based Node Size</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
-    #chart { width:100vw; height:90vh; }
-    #controls { padding:10px; }
+    
+    /* Flex layout: sidebar + chart */
+    #layout {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      margin: 0;
+    }
+
+    /* Sidebar controls */
+    #controls {
+      width: 220px;
+      background: #f8f9fa;
+      padding: 15px;
+      border-right: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+
+    /* Chart area fills remaining space */
+    #chart {
+      flex: 1;
+      height: 100vh;
+    }
+
     .link { stroke: #999; stroke-opacity: 0.6; }
     .node { stroke: #fff; stroke-width: 1.2px; cursor: pointer; }
     .tooltip {
@@ -24,13 +46,19 @@
 </head>
 <body>
 
-<div id="controls">
-  <label for="cityFilter">Filter by city:</label>
-  <select id="cityFilter">
-    <option value="">All cities</option>
-  </select>
-</div>
-
+    <div id="layout">
+        <!-- Sidebar with filter -->
+        <div id="controls">
+          <h3>Filter</h3>
+          <label for="cityFilter">City:</label>
+          <select id="cityFilter">
+            <option value="">All cities</option>
+          </select>
+        </div>
+    
+        <!-- Chart container -->
+        <div id="chart"></div>
+      </div>
 <div id="chart"></div>
 <div class="tooltip" id="tooltip"></div>
 
@@ -48,8 +76,7 @@
     id: d.CityID,
     label: d.CityName || d.CityID,
     lat: +(d.Latitude || 0),
-    lon: +(d.Longitude || 0),
-    size: +(d.TotalPassengers || 1)
+    lon: +(d.Longitude || 0)
   }));
 
   const links = linksRaw.map(d => ({
@@ -58,6 +85,15 @@
     weight: +(d.PassengersPerDay || 1),
     distance: +(d.DistanceKm || 0)
   }));
+
+  // Calculate degree (number of connections) for each node
+  nodes.forEach(n => n.degree = 0);
+  links.forEach(l => {
+    const s = nodes.find(n => n.id === l.source);
+    const t = nodes.find(n => n.id === l.target);
+    if (s) s.degree += 1;
+    if (t) t.degree += 1;
+  });
 
   // Populate city filter dropdown
   const cityDropdown = d3.select('#cityFilter');
@@ -76,8 +112,8 @@
     .attr('width', width)
     .attr('height', height);
 
-  const sizeExtent = d3.extent(nodes, d => d.size);
-  const rScale = d3.scaleSqrt().domain(sizeExtent).range([4,24]);
+  const degreeExtent = d3.extent(nodes, d => d.degree);
+  const rScale = d3.scaleSqrt().domain(degreeExtent).range([6, 24]);
 
   const weightExtent = d3.extent(links, d => d.weight);
   const linkWidth = d3.scaleLinear().domain(weightExtent).range([1,6]);
@@ -89,7 +125,7 @@
     .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.distance ? distScale(d.distance) : 120).strength(0.8))
     .force('charge', d3.forceManyBody().strength(-250))
     .force('center', d3.forceCenter(width/2, height/2))
-    .force('collision', d3.forceCollide().radius(d => rScale(d.size)+4));
+    .force('collision', d3.forceCollide().radius(d => rScale(d.degree)+4));
 
   let link = svg.append('g').attr('class','links').selectAll('line')
     .data(links).join('line')
@@ -105,7 +141,7 @@
     );
 
   node.append('circle')
-    .attr('r', d => rScale(d.size))
+    .attr('r', d => rScale(d.degree))
     .attr('class','node')
     .attr('fill', '#3b82f6')
     .on('mouseover', (event,d) => showTooltip(event,d))
@@ -114,12 +150,12 @@
 
   node.append('text')
     .text(d => d.label)
-    .attr('x', d => rScale(d.size)+4)
+    .attr('x', d => rScale(d.degree)+4)
     .attr('y', 4)
     .style('font-size','12px');
 
   const tooltip = d3.select('#tooltip');
-  function showTooltip(event,d){ tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Passengers: ${d.size}`); d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);}
+  function showTooltip(event,d){ tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}`); d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);}
   function moveTooltip(event){ tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); }
   function hideTooltip(event,d){ tooltip.style('display','none'); d3.select(event.currentTarget).attr('stroke','#fff').attr('stroke-width',1.2); }
 
@@ -139,12 +175,10 @@
     const filteredNodes = selectedCity ? nodes.filter(n => n.id === selectedCity) : nodes;
     const filteredLinks = selectedCity ? links.filter(l => l.source === selectedCity || l.target === selectedCity) : links;
 
-    // Update simulation
     simulation.nodes(filteredNodes);
     simulation.force('link').links(filteredLinks);
     simulation.alpha(0.5).restart();
 
-    // Update SVG
     link = svg.select('g.links').selectAll('line').data(filteredLinks, d => d.source + '-' + d.target).join('line').attr('class','link').attr('stroke-width', d => linkWidth(d.weight));
     node = svg.select('g.nodes').selectAll('g').data(filteredNodes, d => d.id).join('g')
       .call(d3.drag()
@@ -154,7 +188,7 @@
       );
 
     node.append('circle')
-      .attr('r', d => rScale(d.size))
+      .attr('r', d => rScale(d.degree))
       .attr('class','node')
       .attr('fill', '#3b82f6')
       .on('mouseover', (event,d) => showTooltip(event,d))
@@ -163,7 +197,7 @@
 
     node.append('text')
       .text(d => d.label)
-      .attr('x', d => rScale(d.size)+4)
+      .attr('x', d => rScale(d.degree)+4)
       .attr('y', 4)
       .style('font-size','12px');
   });
