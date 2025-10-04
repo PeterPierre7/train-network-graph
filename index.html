@@ -145,7 +145,7 @@
       return true;
   });
 
-  // --- Dropdown Population (Omitted for brevity) ---
+  // --- Dropdown Population ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -201,13 +201,11 @@
   setGeographicalPositions(); 
 
   // --- Force Simulation Configuration ---
-  // Abstract Mode Scaling: radius [12px (min degree) to 24px (max degree)]
   const rScaleAbstract = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([12, 24]);
   
-  // Map Mode Base Radius: fixed to a very small size, and degree scaling is ignored.
   const mapBaseRadius = 4;
-  const mapMinScaleRatio = 0.5; // How much smaller the radius gets on max zoom (zoom: 8)
-  const mapMaxScaleRatio = 1.5; // How much larger the radius gets on min zoom (zoom: 0.5)
+  const mapMinScaleRatio = 0.5; 
+  const mapMaxScaleRatio = 1.5; 
 
   const originalLinkStrength = 0.8;
   const originalChargeStrength = -150;
@@ -230,18 +228,13 @@
       
       node.select('circle').attr('r', d => {
           if (isMapMode) {
-              // Inverse scaling: As transform.k (zoom) increases, radius decreases.
-              // We use a power scale for a smoother, inverted effect.
-              // Clamp the ratio between mapMinScaleRatio and mapMaxScaleRatio
               const scaleRatio = Math.max(mapMinScaleRatio, Math.min(mapMaxScaleRatio, 1 / Math.sqrt(transform.k)));
               return mapBaseRadius * scaleRatio;
           } else {
-              // Abstract mode: Use degree scaling (no zoom influence)
               return rScaleAbstract(d.degree);
           }
       });
       
-      // Update the collision force radius if in Abstract mode (needs to be consistent)
       if (!isMapMode && simulation.force('collision')) {
           simulation.force('collision').radius(d => rScaleAbstract(d.degree) + originalCollisionRadius);
           simulation.alpha(0.3).restart();
@@ -267,7 +260,7 @@
           .force('center', d3.forceCenter(width/2, height/2))
           .force('collision', d3.forceCollide().radius(d => rScaleAbstract(d.degree) + originalCollisionRadius));
       
-      updateNodeRadius(); // Update radius to abstract scaling
+      updateNodeRadius(); 
       simulation.alpha(1).restart();
   }
 
@@ -276,8 +269,10 @@
       d3.select('#mapToggle').text('Toggle Map (ON)').attr('class', 'active');
       g.selectAll(".map-element").style('opacity', 1).style('pointer-events', 'auto');
       
+      // 1. Set fixed positions
       setGeographicalPositions(); 
       
+      // 2. Reduce forces
       simulation
           .force('link').strength(0.05);
       simulation
@@ -285,7 +280,11 @@
           .force('center', null)
           .force('collision', null);
       
-      updateNodeRadius(); // Update radius to map scaling (will use current zoom)
+      updateNodeRadius();
+      
+      // 3. KEY CHANGE: Force the simulation to run ticks so links snap to position
+      // The simulation will run until alpha decays, immediately drawing the links
+      // to the new fixed coordinates (d.x=d.fx, d.y=d.fy).
       simulation.alpha(1).restart();
   }
 
@@ -298,7 +297,7 @@
   });
 
 
-  // Define arrowheads (omitted for brevity)
+  // Define arrowheads
   g.append('defs').append('marker')
     .attr('id', 'arrowhead-green').attr('viewBox', '-0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'green');
   g.append('defs').append('marker')
@@ -336,7 +335,7 @@
               d.fy = y;
               d.x = x;
               d.y = y;
-              simulation.restart();
+              simulation.alpha(1).restart(); // Restart to ensure links update immediately
           } else {
               d.fx = null;
               d.fy = null;
@@ -344,7 +343,7 @@
       })
     );
 
-  node.append('circle').attr('fill', '#3b82f6'); // Radius set by updateNodeRadius()
+  node.append('circle').attr('fill', '#3b82f6');
   node.append('text').text(d => d.label).attr('x', 0).attr('y', 0);
 
   // --- Zoom Logic ---
@@ -356,7 +355,7 @@
              moveTooltip(event);
           }
           if (isMapMode) {
-              updateNodeRadius(); // Update radius based on zoom level
+              updateNodeRadius();
           }
       });
 
@@ -367,7 +366,7 @@
   const tooltip = d3.select('#tooltip');
   let currentTooltipLock = null; 
 
-  // --- Tooltip Logic (Omitted for brevity, same as before) ---
+  // --- Tooltip Logic (Omitted for brevity) ---
   function dismissLock() {
       if (currentTooltipLock) {
           if (currentTooltipLock.id) {
@@ -458,9 +457,9 @@
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist === 0) return null;
         
-        // Use d.r or a fixed value for calculating link offset, depending on mode
-        const rSource = isMapMode ? d3.select(d.source.id).select('circle').attr('r') || mapBaseRadius : rScaleAbstract(d.source.degree);
-        const rTarget = isMapMode ? d3.select(d.target.id).select('circle').attr('r') || mapBaseRadius : rScaleAbstract(d.target.degree);
+        // Get dynamic radius for link offsetting
+        const rSource = d3.select(node.filter(n => n.id === d.source.id).node()).select('circle').attr('r') || mapBaseRadius;
+        const rTarget = d3.select(node.filter(n => n.id === d.target.id).node()).select('circle').attr('r') || mapBaseRadius;
 
         const sx = d.source.x + (dx / dist) * rSource;
         const sy = d.source.y + (dy / dist) * rSource;
@@ -573,7 +572,7 @@
 
     if (isMapMode) {
         setGeographicalPositions();
-        updateNodeRadius(); // Update radius on resize
+        updateNodeRadius();
     } else {
         simulation.force('center', d3.forceCenter(w/2, h/2));
     }
@@ -582,7 +581,7 @@
   });
   
   // Initial run
-  updateNodeRadius(); // Set initial radius
+  updateNodeRadius(); 
   simulation.alpha(1).restart(); 
 
 })();
