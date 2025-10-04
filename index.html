@@ -237,10 +237,10 @@
   const cityLabelSizeMap = 4;
   const cityLabelSizeAbstract = 10;
 
-  // CHANGE 1: Stronger Node Repulsion (to prevent node overlap in a tight cluster)
-  const originalChargeStrength = -250; 
-  // CHANGE 2: Very Weak Link Force (much weaker than the charge/center forces)
-  const originalLinkStrength = -0.1; 
+  // CHANGE 1: Strong global repulsion to prevent nodes from collapsing and overlapping
+  const originalChargeStrength = -500; 
+  // CHANGE 2: Moderate Link Attraction (Spring force) to establish link distances
+  const originalLinkStrength = 0.4; 
   
   const originalCollisionRadius = 5;
 
@@ -308,11 +308,11 @@
           d.fy = null;
       });
 
-      // Link strength is very weak repulsive/close to zero
+      // Link strength is moderate attraction to define link distances
       simulation
           .force('link').strength(originalLinkStrength);
       simulation
-          .force('charge', d3.forceManyBody().strength(originalChargeStrength)) // Node Repulsion
+          .force('charge', d3.forceManyBody().strength(originalChargeStrength)) // Node Repulsion (prevents collapse/explosion)
           .force('center', d3.forceCenter(width/2, height/2)) // Node Attraction (cohesion)
           .force('collision', d3.forceCollide().radius(d => rScaleAbstract(d.degree) + originalCollisionRadius));
       
