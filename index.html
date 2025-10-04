@@ -13,21 +13,21 @@
     .node circle { stroke:#fff; stroke-width:1.5px; cursor:pointer; }
     .node text { font-size:12px; pointer-events:none; }
     .link { fill:none; cursor:pointer; }
-    /* 👇 MODIFIED: Increased font size for link labels */
+    /* Style for the link labels */
     .link-label text {
-        font-size: 11px; /* Bigger font */
+        font-size: 11px;
         font-weight: bold;
         fill: #333; 
         pointer-events: none; 
-        text-shadow: 0 0 4px #fff, 0 0 4px #fff; /* Thicker white outline */
+        text-shadow: 0 0 4px #fff, 0 0 4px #fff; 
     }
     .tooltip { 
         position:absolute; 
         background:rgba(0,0,0,0.8); 
         color:#fff; 
-        padding:8px 12px; /* Slightly bigger padding */
+        padding:8px 12px;
         border-radius:4px; 
-        font-size:14px; /* Slightly bigger font */
+        font-size:14px;
         pointer-events:none; 
         display:none; 
         line-height: 1.4;
@@ -97,7 +97,7 @@
       linkKeyMap[directionalKey] = link;
   });
 
-  // 👇 NEW: Filter links for unique reciprocal label display
+  // Filter links for unique reciprocal label display
   const labeledLinks = links.filter(d => {
       if (d.isReciprocal) {
           // For reciprocal links, only keep the one where source < target alphabetically
@@ -106,7 +106,6 @@
       }
       return true; // Keep all one-way links
   });
-  // 👆 END NEW
 
   // --- Dropdown Population ---
   const animalSet = new Set();
@@ -174,15 +173,15 @@
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)');
 
-  // --- Link Label Group (using filtered data) ---
+  // --- Link Label Group ---
   const linkLabel = svg.append('g').attr('class', 'link-labels')
     .selectAll('g')
-    .data(labeledLinks) // 👈 Use filtered list
+    .data(labeledLinks)
     .join('g')
     .attr('class', 'link-label');
 
   linkLabel.append('text')
-    .attr('dy', -3) // slight vertical offset from the line
+    .attr('dy', -3)
     .attr('text-anchor', 'middle')
     .text(d => d.Animals); 
 
@@ -207,71 +206,81 @@
     .attr('y', 4);
 
   const tooltip = d3.select('#tooltip');
-  let currentTooltipData = null; // Tracks the currently displayed data object
+  let currentTooltipNode = null; // Tracks the currently displayed node data object (for click-lock)
 
-  function showTooltipLink(event, d) {
+  // --- Tooltip Handlers ---
+  function showTooltipLinkHover(event, d) {
     const sourceLabel = d.source.label || d.source.id;
     const targetLabel = d.target.label || d.target.id;
     const status = d.isReciprocal ? ' (Reciprocal Route)' : ' (One-Way Route)';
     
-    // Check if the same link was clicked again to dismiss
-    if (currentTooltipData === d) {
+    // Only show if a node isn't currently locked
+    if (currentTooltipNode === null) {
+        tooltip.style('display', 'block')
+          .html(`<strong>Route ID: ${d.RouteID}</strong><br/>
+                 ${sourceLabel} → ${targetLabel}${status}<br/>
+                 Animals: ${d.Animals}`);
+        tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px');
+    }
+  }
+
+  function hideTooltipLinkHover() {
+      // Only hide if a node isn't currently locked
+      if (currentTooltipNode === null) {
+          tooltip.style('display', 'none');
+      }
+  }
+  
+  function showTooltipNodeClick(event, d) {
+    // Check if the same node was clicked again to dismiss
+    if (currentTooltipNode === d) {
         tooltip.style('display', 'none');
-        currentTooltipData = null;
+        d3.select(event.currentTarget).attr('stroke', '#fff').attr('stroke-width', 1.5);
+        currentTooltipNode = null;
         return;
     }
     
-    tooltip.style('display', 'block')
-      .html(`<strong>Route ID: ${d.RouteID}</strong><br/>
-             ${sourceLabel} → ${targetLabel}${status}<br/>
-             Animals: ${d.Animals}`);
-             
-    tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px');
-    currentTooltipData = d;
-  }
-  
-  function showTooltipNode(event, d) {
-    // Check if the same node was clicked again to dismiss
-    if (currentTooltipData === d) {
-        tooltip.style('display', 'none');
-        d3.select(event.currentTarget).attr('stroke', '#fff').attr('stroke-width', 1.5);
-        currentTooltipData = null;
-        return;
+    // Dismiss any previous node lock and set new lock
+    if (currentTooltipNode) {
+         node.select('circle').filter(n => n === currentTooltipNode)
+             .attr('stroke', '#fff').attr('stroke-width', 1.5);
     }
     
     tooltip.style('display', 'block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
     d3.select(event.currentTarget).attr('stroke', '#000').attr('stroke-width', 2);
     
     tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px');
-    currentTooltipData = d;
+    currentTooltipNode = d;
   }
   
-  // 👇 MODIFIED: Change event listeners from mouseover/out to click
-  link.on('click', showTooltipLink);
-  node.select('circle').on('click', showTooltipNode);
-  // 👆 END MODIFIED
-
-  // Attach mousemove only to move the tooltip after it's been displayed by a click
-  // This is a minimal implementation of tooltip movement after a click.
-  // Note: A standard D3 force graph often ties movement to the drag of nodes.
-  // For static content like links, it's better to calculate on click only.
-  // For this version, we'll keep the movement logic minimal:
   function moveTooltip(event) {
-    if (currentTooltipData) {
-        tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); 
-    }
+    // Move the tooltip regardless of whether it was opened by hover (link) or click (node)
+    tooltip.style('left', (event.pageX+12)+'px').style('top', (event.pageY+12)+'px'); 
   }
-  link.on('mousemove', moveTooltip);
+
+  // --- Event Listeners ---
+  
+  // Links: Hover to show details (new behavior)
+  link.on('mouseover', showTooltipLinkHover)
+      .on('mousemove', moveTooltip)
+      .on('mouseout', hideTooltipLinkHover);
+  
+  // Nodes: Click to show/dismiss details (retained behavior)
+  node.select('circle').on('click', showTooltipNodeClick);
+  // Mousemove on nodes to update tooltip position if a node is clicked/locked
   node.select('circle').on('mousemove', moveTooltip);
 
-  // Function to dismiss tooltip on any chart click not on a node or link
-  svg.on('click', () => {
-    // Check if the click event originated from the SVG canvas itself
-    if (d3.event.target.tagName === 'svg') {
+  // Function to dismiss node-lock and clear tooltip on chart click
+  svg.on('click', (event) => {
+    // Check if the click event originated from the SVG canvas itself (not a node/link)
+    if (event.target.tagName === 'svg') {
+        if (currentTooltipNode) {
+            // Dismiss node lock
+            node.select('circle').filter(n => n === currentTooltipNode)
+                 .attr('stroke', '#fff').attr('stroke-width', 1.5);
+            currentTooltipNode = null;
+        }
         tooltip.style('display', 'none');
-        // Reset node circles stroke in case a node was selected
-        node.select('circle').attr('stroke', '#fff').attr('stroke-width', 1.5);
-        currentTooltipData = null;
     }
   });
 
@@ -310,20 +319,17 @@
     });
     node.attr('transform', d => `translate(${d.x},${d.y})`);
 
-    // 👇 MODIFIED: Update link label position (always horizontal)
+    // Update link label position (always horizontal)
     linkLabel.attr('transform', d => {
-        // Calculate the midpoint of the link path
-        // We look for the corresponding link path from the 'link' selection.
         const path = link.filter(p => p.source.id === d.source.id && p.target.id === d.target.id && p.Animals === d.Animals).node();
         if (!path) return `translate(0, 0)`;
 
         const totalLength = path.getTotalLength();
         const point = path.getPointAtLength(totalLength / 2);
         
-        // Always return horizontal (no rotation applied)
+        // Always return horizontal
         return `translate(${point.x}, ${point.y})`;
     });
-    // 👆 END MODIFIED
   });
 
   // --- Filtering Logic (Combined Handler) ---
