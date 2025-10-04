@@ -475,12 +475,13 @@
     .each(function(d) {
         const textElement = d3.select(this);
         
-        // Filter and map the relevant animal details for this *visual* link
         let relevantAnimals;
         if (d.isReciprocal) {
             const reciprocalRoutes = d.displayAnimals.filter(a => a.isReciprocal);
+            // Filter unique animals on reciprocal routes
             relevantAnimals = [...new Map(reciprocalRoutes.map(item => [item['name'], item])).values()];
         } else {
+            // *** FIX: Only include one-way routes that match THIS link's specific direction (source -> target) ***
             relevantAnimals = d.displayAnimals.filter(a => 
                 !a.isReciprocal && 
                 a.source === d.source.id && 
