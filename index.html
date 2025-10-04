@@ -41,9 +41,14 @@
         fill: #000; 
         pointer-events: none; /* Crucial: allows clicking on the link path underneath */
         text-anchor: middle;
+        /* Center text vertically around the point */
+        dominant-baseline: central; 
         text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; 
         font-weight: bold;
     }
+    /* Set color for reciprocal/one-way text */
+    .link-label .reciprocal { fill: green; }
+    .link-label .one-way { fill: red; }
 
     .tooltip { 
         position:absolute; 
@@ -220,8 +225,8 @@
               isReciprocal: l.isReciprocal,
               cityPair: canonicalCityPair, 
               directionKey: l.source + '->' + l.target,
-              // *** NEW: Store the primary animal for the permanent label ***
-              displayAnimal: l.Animals // Use the animal from the first found link for this visual path
+              // Store aggregated animals data key for easy lookup later
+              animalDataKey: canonicalCityPair 
           };
       }
   });
@@ -232,6 +237,9 @@
   labeledLinks.forEach(l => {
       l.source = nodes.find(n => n.id === l.source) || l.source;
       l.target = nodes.find(n => n.id === l.target) || l.target;
+      
+      // Attach the full animal list for permanent label creation
+      l.displayAnimals = aggregatedAnimals[l.animalDataKey] || [];
   });
 
   // Group paths by city pair for curvature indexing
@@ -376,7 +384,7 @@
           return isMapMode ? `${cityLabelSizeMap}px` : `${cityLabelSizeAbstract}px`;
       });
       
-      // *** NEW: Update link label size with zoom/layout ***
+      // Update link label size with zoom/layout
       linkLabel.select('text').style('font-size', d => {
           if (isMapMode) {
               const scaleRatio = Math.max(mapMinScaleRatio, Math.min(mapMaxScaleRatio, 1 / Math.sqrt(transform.k)));
@@ -458,14 +466,60 @@
     .attr('marker-start', d => d.isReciprocal ? 'url(#arrowhead-green-start)' : null)
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green-end)' : 'url(#arrowhead-red-end)');
 
-  // --- Link Label Group: NOW VISIBLE AND FUNCTIONAL ---
+  // --- Link Label Group: Multi-line labels ---
   const linkLabel = g.append('g').attr('class', 'link-labels')
     .selectAll('g').data(labeledLinks).join('g').attr('class', 'link-label');
 
-  // *** NEW: Add text element for the label and set its content ***
+  // Clear existing content and build the multi-line label
+  linkLabel.html(null); 
+  
   linkLabel.append('text')
-    .text(d => d.displayAnimal);
+    .each(function(d) {
+        const textElement = d3.select(this);
+        
+        // Filter and map the relevant animal details for this *visual* link
+        // For reciprocal links, we only need the reciprocal entry
+        // For one-way links, we only need the entry that matches the direction (Source -> Target)
+        let relevantAnimals;
+        if (d.isReciprocal) {
+            // Find unique reciprocal animals for this city pair
+            const reciprocalRoutes = d.displayAnimals.filter(a => a.isReciprocal);
+            // Deduplicate by name and direction is not needed here as it is reciprocal
+            relevantAnimals = [...new Map(reciprocalRoutes.map(item => [item['name'], item])).values()];
+        } else {
+            // Find the one-way animal route that matches the displayed link's direction (Source -> Target)
+            relevantAnimals = d.displayAnimals.filter(a => 
+                !a.isReciprocal && 
+                a.source === d.source.id && 
+                a.target === d.target.id
+            );
+        }
 
+        // Limit to the first 3 entries for the permanent label
+        relevantAnimals.slice(0, 3).forEach((a, i) => {
+            let symbol;
+            let className;
+            
+            if (a.isReciprocal) {
+                symbol = '<-->';
+                className = 'reciprocal';
+            } else {
+                // For a one-way path, the symbol is always '-->' (Source -> Target)
+                // because we filtered the relevantAnimals to only include the routes
+                // that match the visual link direction (d.source -> d.target).
+                symbol = '-->';
+                className = 'one-way';
+            }
+
+            textElement.append('tspan')
+                .attr('class', className)
+                .attr('x', 0) // Align all tspan elements horizontally at x=0
+                // dy controls the vertical spacing from the previous tspan. 
+                // Adjusting the first one to be centered, then subsequent ones for stacking.
+                .attr('dy', (i === 0 ? '-0.5em' : '1em')) 
+                .text(`${a.name} ${symbol}`);
+        });
+    });
 
   // --- Node Group (omitted for brevity) ---
   const node = g.append('g').attr('class', 'nodes')
@@ -543,7 +597,8 @@
       // 1. Reciprocal Section
       if (reciprocalAnimals.length > 0) {
           htmlContent += reciprocalAnimals.map(a => 
-              `<span class="green-text">${a.name} $\\leftrightarrow$</span>` 
+              // Removed the LaTeX symbol to prevent breaking, using standard HTML entities or simple text
+              `<span class="green-text">${a.name} &lt;--&gt;</span>` 
           ).join('<br/>') + '<br/>';
       }
 
@@ -645,9 +700,6 @@
   simulation.on('tick', () => {
     node.attr('transform', d => `translate(${d.x},${d.y})`);
 
-    // D3 needs to select the underlying path element to calculate the midpoint for the label.
-    // We use a temporary selection here or access the element directly.
-    const linkPathNodes = link.nodes();
     
     link.attr('d', (d, i) => {
         const sourceNode = d.source;
@@ -674,6 +726,10 @@
         // PathIndex 0 = Reciprocal (straight line)
         if (d.pathIndex === 0) {
             d.pathString = `M${sx},${sy}L${tx},${ty}`;
+            // Store the start/end points for label positioning
+            d.midpoint = [(sx + tx) / 2, (sy + ty) / 2];
+            d.angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
         } else {
             // PathIndex 1 & 2 = One-way (parallel curves in one direction)
             
@@ -688,32 +744,35 @@
             
             if (dr <= adjustedDist) { 
                  d.pathString = `M${sx},${sy}L${tx},${ty}`;
+                 d.midpoint = [(sx + tx) / 2, (sy + ty) / 2];
+                 d.angle = Math.atan2(dy, dx) * 180 / Math.PI;
             } else {
                  d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
+                 
+                 // Fallback: For arc, we use the straight-line midpoint and apply a small static offset 
+                 // to visually place the label "above" the arc.
+                 d.midpoint = [(sx + tx) / 2, (sy + ty) / 2];
+                 d.angle = Math.atan2(dy, dx) * 180 / Math.PI; 
             }
         }
 
         return d.pathString;
     });
 
-    // *** NEW: Position the link labels after the path 'd' attribute is set ***
-    linkLabel.attr('transform', function(d, i) {
-        const pathNode = linkPathNodes[i];
+    // *** MODIFIED: Position the link labels using simple midpoint + offset ***
+    linkLabel.attr('transform', function(d) {
+        if (!d.midpoint) return 'translate(0,0)'; 
         
-        if (!pathNode || !d.pathString) return 'translate(0,0)'; 
+        const [mx, my] = d.midpoint;
+        const angle = d.angle;
         
-        // Use d3's path utilities to find the midpoint
-        const pathLength = pathNode.getTotalLength();
-        const point = pathNode.getPointAtLength(pathLength / 2);
-        
-        // Calculate the angle for rotation (tangent to the path at the midpoint)
-        const pointBefore = pathNode.getPointAtLength(pathLength / 2 - 1);
-        const pointAfter = pathNode.getPointAtLength(pathLength / 2 + 1);
-        
-        const angle = Math.atan2(pointAfter.y - pointBefore.y, pointAfter.x - pointBefore.x) * 180 / Math.PI;
-        
-        // Apply transformation: move to midpoint, rotate to align with the path, and shift slightly above the line (-5px y offset)
-        return `translate(${point.x}, ${point.y}) rotate(${angle}) translate(0, -5)`;
+        // Calculate offset based on angle and the path index/curvature
+        const labelOffsetMagnitude = 10 + (d.pathIndex * 5); // Base offset + additional separation for curved lines
+        const offsetX = -labelOffsetMagnitude * Math.sin(angle * Math.PI / 180);
+        const offsetY = labelOffsetMagnitude * Math.cos(angle * Math.PI / 180);
+
+        // Position the label group at the midpoint, rotated to align with the line, and offset above it
+        return `translate(${mx + offsetX}, ${my + offsetY}) rotate(${angle})`;
     })
     .style('opacity', d => link.filter(l => l === d).style('opacity')); // Match link visibility
   });
@@ -732,10 +791,21 @@
     // 1. Filter by Animal
     if (selectedAnimal !== 'all') {
         const filteredCityPairs = new Set();
-        links.filter(l => l.Animals === selectedAnimal).forEach(l => {
-            filteredCityPairs.add([l.source, l.target].sort().join('|'));
+        // The filter must check if the animal is present in the *aggregated* list for that visual link
+        activeLinks = activeLinks.filter(l => {
+            if (l.isReciprocal) {
+                // Check if the selected animal is a reciprocal animal on this link
+                return l.displayAnimals.some(a => a.isReciprocal && a.name === selectedAnimal);
+            } else {
+                // Check if the selected animal is a one-way animal matching the link's direction
+                return l.displayAnimals.some(a => 
+                    !a.isReciprocal && 
+                    a.name === selectedAnimal && 
+                    a.source === l.source.id && 
+                    a.target === l.target.id
+                );
+            }
         });
-        activeLinks = activeLinks.filter(l => filteredCityPairs.has(l.cityPair));
     }
 
     // 2. Filter by Reciprocal Status
