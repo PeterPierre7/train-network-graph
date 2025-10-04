@@ -481,7 +481,7 @@
             // Filter unique animals on reciprocal routes
             relevantAnimals = [...new Map(reciprocalRoutes.map(item => [item['name'], item])).values()];
         } else {
-            // *** FIX: Only include one-way routes that match THIS link's specific direction (source -> target) ***
+            // Only include one-way routes that match THIS link's specific direction (source -> target)
             relevantAnimals = d.displayAnimals.filter(a => 
                 !a.isReciprocal && 
                 a.source === d.source.id && 
@@ -501,12 +501,13 @@
                 symbol = '-->';
                 className = 'one-way';
             }
-
+            
+            // *** FIX HERE: Adjust starting dy to create more vertical separation from the line ***
             textElement.append('tspan')
                 .attr('class', className)
                 .attr('x', 0) // Align all tspan elements horizontally at x=0
-                // dy controls the vertical spacing from the previous tspan. 
-                .attr('dy', (i === 0 ? '-0.5em' : '1em')) 
+                // Start with -1em to shift the whole block up/down more aggressively.
+                .attr('dy', (i === 0 ? '-1em' : '1em')) 
                 .text(`${a.name} ${symbol}`);
         });
     });
@@ -741,7 +742,7 @@
         return d.pathString;
     });
 
-    // *** MODIFIED LOGIC FOR LABEL POSITIONING ***
+    // *** MODIFIED LOGIC FOR LABEL POSITIONING (Vertical separation) ***
     linkLabel.attr('transform', function(d) {
         if (!d.midpoint) return 'translate(0,0)'; 
         
