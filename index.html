@@ -129,8 +129,9 @@
     isReciprocal: false
   }));
   
-  // Map to hold route details for reciprocal check
+  // Map to hold route details for reciprocal check and parallel link counting
   const reciprocalRoutes = {};
+  const linkGroups = {}; // New map to track parallel links for curvature
 
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
@@ -138,19 +139,37 @@
     if(s) s.degree += 1;
     if(t) t.degree += 1;
     
-    // Create a canonical key for the route (alphabetically sorted cities)
-    const key = [l.source, l.target].sort().join('|') + '|' + l.Animals;
+    // Canonical key for reciprocal check (sorted cities + animal)
+    const reciprocalKey = [l.source, l.target].sort().join('|') + '|' + l.Animals;
     
-    if (!reciprocalRoutes[key]) {
-        reciprocalRoutes[key] = [];
+    if (!reciprocalRoutes[reciprocalKey]) {
+        reciprocalRoutes[reciprocalKey] = [];
     }
-    reciprocalRoutes[key].push(l);
+    reciprocalRoutes[reciprocalKey].push(l);
+    
+    // Key for all parallel links (sorted cities only)
+    const parallelKey = [l.source, l.target].sort().join('|');
+    if (!linkGroups[parallelKey]) {
+        linkGroups[parallelKey] = [];
+    }
+    // Store link and its original direction for path drawing
+    linkGroups[parallelKey].push({ link: l, direction: l.source < l.target ? 1 : -1 }); 
+  });
+  
+  // Assign index and total to each link within its parallel group
+  Object.values(linkGroups).forEach(group => {
+      const total = group.length;
+      group.forEach((item, index) => {
+          item.link.parallelIndex = index;
+          item.link.parallelTotal = total;
+          item.link.parallelKey = group[0].link.source < group[0].link.target ? group[0].link.source + '|' + group[0].link.target : group[0].link.target + '|' + group[0].link.source;
+      });
   });
 
   // Second pass to identify and update reciprocal links
   links.forEach(link => {
-      const key = [link.source, link.target].sort().join('|') + '|' + link.Animals;
-      const routes = reciprocalRoutes[key];
+      const reciprocalKey = [link.source, link.target].sort().join('|') + '|' + link.Animals;
+      const routes = reciprocalRoutes[reciprocalKey];
       
       if (routes.length === 2) {
           // If there are exactly two links (A->B and B->A) with the same animal, they are reciprocal
@@ -537,28 +556,63 @@
         const tx = d.target.x - (dx / dist) * rTarget;
         const ty = d.target.y - (dy / dist) * rTarget;
         
-        const dr = d.isReciprocal ? dist * 0.8 : dist * 0.8;
+        // =======================================================
+        // NEW LOGIC FOR MULTIPLE PARALLEL LINKS
+        // =======================================================
+        const total = d.parallelTotal;
+        const index = d.parallelIndex;
         
-        const allLinksBetween = links.filter(l => 
-            (l.source.id === d.source.id && l.target.id === d.target.id && l.Animals === d.Animals) || 
-            (l.source.id === d.target.id && l.target.id === d.source.id && l.Animals === d.Animals)
-        );
-        let arcFlag = 0;
-        if (allLinksBetween.length > 1) {
-             const indexInFiltered = allLinksBetween.findIndex(l => l.source.id === d.source.id && l.target.id === d.target.id);
-             if (indexInFiltered === 0) {
-                 arcFlag = 0; 
-             } else {
-                 arcFlag = 1; 
-             }
+        let dr_factor;
+        let arcFlag; 
+
+        if (total === 1) {
+            // Straight line
+            dr_factor = 0; 
+            arcFlag = 0; 
+        } else {
+            // Calculate an even spacing factor for the arc radius (dr)
+            // (index - (total - 1) / 2) creates indices like:
+            // total=2: [-0.5, 0.5]
+            // total=3: [-1, 0, 1]
+            // total=4: [-1.5, -0.5, 0.5, 1.5]
+            const offset = index - (total - 1) / 2;
+            const curvature = 0.5; // Base curvature magnitude
+            
+            dr_factor = dist * curvature * offset;
+
+            // Use the sign of the dr_factor to determine the arc flag
+            // This ensures arcs alternate sides around the straight line (index 0)
+            arcFlag = offset > 0 ? 0 : 1; 
+            
+            // Adjust arc flag for reciprocal/different directions if necessary
+            // For true parallel links (like our current A->B B->A), they should alternate sides
+            // Since we assign the index based on the canonical key, this should work.
+            // If the key is A|B, and we're drawing B->A, the path reverses, but the arc should stay consistent.
+            // We use the absolute value of dr_factor for the radius (dr), and the sign of offset for sweep-flag control.
         }
-        d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
+        
+        // Use the absolute value of the dynamic dr_factor for the radius
+        const dr = dist + Math.abs(dr_factor); 
+        
+        // If dr_factor is near zero (straight line), ensure we don't use the arc command
+        if (Math.abs(dr_factor) < 1) {
+             d.pathString = `M${sx},${sy}L${tx},${ty}`;
+        } else {
+             // Sweep flag (arcFlag) determined by the sign of the offset
+             d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
+        }
+        // =======================================================
+
         return d.pathString;
     });
     
     // Update link label position
     linkLabel.attr('transform', d => {
-        const path = link.filter(p => p.source.id === d.source.id && p.target.id === d.target.id && p.Animals === d.Animals).node();
+        // Find the corresponding path element using the canonical key
+        const path = link.filter(p => 
+            p.source.id === d.source.id && p.target.id === d.target.id && p.Animals === d.Animals
+        ).node();
+        
         if (!path) return `translate(0, 0)`;
         const totalLength = path.getTotalLength();
         const point = path.getPointAtLength(totalLength / 2);
@@ -566,11 +620,11 @@
     });
   });
 
-  // --- Filtering Logic ---
+  // --- Filtering Logic (Omitted for brevity) ---
   function updateVisualization() {
     const selectedAnimal = animalDropdown.node().value;
     const selectedCity = cityDropdown.node().value;
-    const selectedReciprocal = reciprocalDropdown.node().value; // NEW
+    const selectedReciprocal = reciprocalDropdown.node().value; 
 
     const duration = 300; 
 
@@ -584,18 +638,16 @@
         activeLabeledLinks = activeLabeledLinks.filter(l => l.Animals === selectedAnimal);
     }
 
-    // 2. Filter by Reciprocal Status (NEW)
+    // 2. Filter by Reciprocal Status
     if (selectedReciprocal !== 'all') {
         const isReciprocal = (selectedReciprocal === 'reciprocal');
         activeLinks = activeLinks.filter(l => l.isReciprocal === isReciprocal);
         
-        // Filter labeled links (which only includes the A->B version of reciprocal links)
+        // Filter labeled links 
         activeLabeledLinks = activeLabeledLinks.filter(l => {
-            // For one-way, we filter by non-reciprocal.
             if (!isReciprocal) {
                 return l.isReciprocal === false;
             }
-            // For reciprocal, we filter by reciprocal (which is why we only keep A->B link)
             return l.isReciprocal === true;
         });
     }
@@ -610,7 +662,7 @@
         const cityLinkIds = new Set(cityLinks.map(l => l.RouteID));
         activeLinks = activeLinks.filter(l => cityLinkIds.has(l.RouteID));
 
-        // Filter labeled links (must match city and be in the active set)
+        // Filter labeled links 
         activeLabeledLinks = activeLabeledLinks.filter(l => 
             (l.source.id === selectedCity || l.target.id === selectedCity) && activeLinks.some(al => al.RouteID === l.RouteID)
         );
@@ -654,7 +706,7 @@
 
   animalDropdown.on('change', updateVisualization);
   cityDropdown.on('change', updateVisualization);
-  reciprocalDropdown.on('change', updateVisualization); // NEW listener
+  reciprocalDropdown.on('change', updateVisualization);
   
   // Resize handler updated
   window.addEventListener('resize', () => {
