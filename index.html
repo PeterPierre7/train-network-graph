@@ -743,7 +743,7 @@
     });
 
     // *** FIX: Use parallel offset to separate the labels along the length of the line ***
-    const parallelOffset = 30; // Distance to shift the labels along the line's direction
+    const parallelOffset = 0; // Distance to shift the labels along the line's direction
 
     linkLabel.attr('transform', function(d) {
         if (!d.midpoint) return 'translate(0,0)'; 
@@ -761,7 +761,7 @@
         } else if (d.pathIndex === 1) {
             // Index 1 (One-way/Curve 1) -> *** Changed to positive perpendicular offset ***
             perpendicularOffsetMagnitude = 20; 
-            finalParallelOffset = -parallelOffset; // Shift towards the source node
+            finalParallelOffset = 0; // Shift towards the source node
         } else { // d.pathIndex === 2
             // Index 2 (One-way/Curve 2) -> *** Changed to a larger positive perpendicular offset ***
             perpendicularOffsetMagnitude = 20; 
