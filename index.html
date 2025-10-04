@@ -59,7 +59,7 @@
     source: d.FromCity,
     target: d.ToCity,
     Animals: d.Animals,
-    isReciprocal: false // 👈 Initial flag for coloring
+    isReciprocal: false // Initial flag for coloring
   }));
 
   links.forEach(l => {
@@ -69,14 +69,9 @@
     if(t) t.degree += 1;
   });
 
-  // 👇 NEW LOGIC: Identify and flag reciprocal links
+  // LOGIC: Identify and flag reciprocal links
   const linkKeyMap = {};
   links.forEach(link => {
-      // Create a canonical key for the route (e.g., "CityA-CityB-Dog")
-      // Sort cities alphabetically to ensure (A-B) and (B-A) match a common key.
-      const cities = [link.source, link.target].sort();
-      const canonicalKey = `${cities[0]}-${cities[1]}-${link.Animals}`;
-
       // Create the directional key for checking the reverse path (e.g., "CityA|CityB|Dog")
       const directionalKey = `${link.source}|${link.target}|${link.Animals}`;
       const reverseKey = `${link.target}|${link.source}|${link.Animals}`;
@@ -90,7 +85,6 @@
       // Store the link itself using the directional key
       linkKeyMap[directionalKey] = link;
   });
-  // 👆 END NEW LOGIC
 
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
@@ -120,7 +114,7 @@
     .attr('d', 'M0,-5L10,0L0,5')
     .attr('fill', '#999');
 
-  // 👇 NEW MARKERS for green and red links
+  // NEW MARKERS for green and red links
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead-green')
     .attr('viewBox', '-0 -5 10 10')
@@ -144,13 +138,14 @@
     .append('path')
     .attr('d', 'M0,-5L10,0L0,5')
     .attr('fill', 'red');
-  // 👆 END NEW MARKERS
 
   const rScale = d3.scaleSqrt().domain(d3.extent(nodes, d => d.degree)).range([6, 24]);
 
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(120).strength(0.8))
-    .force('charge', d3.forceManyBody().strength(-250))
+    // 👇 UPDATED: Increased distance for more "give" in links (from 120 to 150)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(150).strength(0.8))
+    // 👇 UPDATED: Reduced negative strength to lessen repulsion of isolated nodes (from -250 to -150)
+    .force('charge', d3.forceManyBody().strength(-150))
     .force('center', d3.forceCenter(width/2, height/2))
     .force('collision', d3.forceCollide().radius(d => rScale(d.degree) + 5));
 
@@ -160,10 +155,9 @@
     .join('path')
     .attr('class', 'link')
     .attr('stroke-width', 2.5)
-    // 👇 UPDATED: Use the `isReciprocal` flag for color
+    // Use the `isReciprocal` flag for color
     .attr('stroke', d => d.isReciprocal ? 'green' : 'red')
     .attr('marker-end', d => d.isReciprocal ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)');
-    // 👆 END UPDATED
 
   const node = svg.append('g').attr('class', 'nodes')
     .selectAll('g')
@@ -189,7 +183,7 @@
   function showTooltipLink(event, d) {
     const sourceLabel = d.source.label || d.source.id;
     const targetLabel = d.target.label || d.target.id;
-    // 👇 Updated tooltip to show reciprocal status
+    // Updated tooltip to show reciprocal status
     const status = d.isReciprocal ? ' (Reciprocal Route)' : ' (One-Way Route)';
     tooltip.style('display', 'block')
       .html(`<strong>${sourceLabel} → ${targetLabel}</strong><br/>Animals: ${d.Animals}${status}`);
@@ -219,36 +213,34 @@
         const sy = d.source.y + (dy / dist) * rSource;
         const tx = d.target.x - (dx / dist) * rTarget;
         const ty = d.target.y - (dy / dist) * rTarget;
-        // For reciprocal links, we slightly increase the radius (dr) to make the two arcs more distinct
-        const dr = d.isReciprocal ? dist * 0.9 : dist * 0.8;
-        // The sweep flag (0,1) in the arc command makes the arc curve in opposite directions
-        const sweepFlag = d.isReciprocal && (link.nodes().indexOf(link.filter(p => p.source.id === d.target.id && p.target.id === d.source.id && p.Animals === d.Animals).datum()) < link.nodes().indexOf(d)) ? 0 : 1; 
         
-        // Simpler, non-overlapping arc for visualization:
-        // By checking if the index of the current link is less than the index of its reverse,
-        // we can assign a different 'sweep flag' to make them curve away from each other.
+        // 👇 UPDATED: Use a smaller multiplier for reciprocal links (from 0.9 to 0.8)
+        const dr = d.isReciprocal ? dist * 0.8 : dist * 0.8;
+        
+        // Logic to separate reciprocal arcs:
         const allLinksBetween = links.filter(l => 
-            (l.source === d.source && l.target === d.target && l.Animals === d.Animals) || 
-            (l.source === d.target && l.target === d.source && l.Animals === d.Animals)
+            (l.source.id === d.source.id && l.target.id === d.target.id && l.Animals === d.Animals) || 
+            (l.source.id === d.target.id && l.target.id === d.source.id && l.Animals === d.Animals)
         );
         let arcFlag = 0;
         if (allLinksBetween.length > 1) {
-             const indexInFiltered = allLinksBetween.findIndex(l => l.source === d.source && l.target === d.target);
-             if (indexInFiltered % 2 === 0) {
+             // Find the index of the current link among the two reciprocal links
+             const indexInFiltered = allLinksBetween.findIndex(l => l.source.id === d.source.id && l.target.id === d.target.id);
+             if (indexInFiltered === 0) {
                  arcFlag = 0; // Curve one way
              } else {
                  arcFlag = 1; // Curve the other way
              }
         }
 
-        // Use the sweep flag to ensure the two reciprocal arcs separate
+        // Use the arcFlag (sweep flag) to ensure the two reciprocal arcs separate
         return `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
 
     });
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // --- UPDATED: Filter logic to make inactive elements disappear ---
+  // --- Filter logic to make inactive elements disappear ---
   animalDropdown.on('change', function() {
     const selectedAnimal = this.value;
     const duration = 300; // Animation duration in milliseconds
