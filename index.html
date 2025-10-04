@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Train Network with Animal Filter from GSheet</title>
+<title>Train Network with Dynamic Arrowheads</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
@@ -11,7 +11,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 #chart { flex:1; height:100vh; }
 .node circle { stroke:#fff; stroke-width:1.2px; cursor:pointer; }
 .node text { font-size:12px; pointer-events:none; }
-.link { fill:none; stroke-opacity:0.8; cursor:pointer; }
+.link { fill:none; cursor:pointer; }
 .tooltip { position:absolute; background:rgba(0,0,0,0.8); color:#fff; padding:6px 8px; border-radius:4px; font-size:13px; pointer-events:none; display:none; }
 </style>
 </head>
@@ -52,7 +52,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     Animals: d.Animals
   }));
 
-  // Compute degree
+  // compute degree
   links.forEach(l => {
     const s = nodes.find(n => n.id === l.source);
     const t = nodes.find(n => n.id === l.target);
@@ -60,7 +60,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     if(t) t.degree += 1;
   });
 
-  // Animal dropdown
+  // --- Animal dropdown ---
   const animalSet = new Set();
   links.forEach(l => { if(l.Animals) animalSet.add(l.Animals.trim()); });
   nodes.forEach(n => n.animals.forEach(a => animalSet.add(a)));
@@ -74,11 +74,11 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
   const height = container.node().clientHeight;
   const svg = container.append('svg').attr('width', width).attr('height', height);
 
-  // Arrowhead
+  // Arrowhead definition
   svg.append('defs').append('marker')
     .attr('id', 'arrowhead')
     .attr('viewBox', '0 -5 10 10')
-    .attr('refX', 15)
+    .attr('refX', 10)
     .attr('refY', 0)
     .attr('markerWidth', 6)
     .attr('markerHeight', 6)
@@ -133,32 +133,37 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     tooltip.style('display','block').html(`<strong>${d.label}</strong><br/>Connections: ${d.degree}<br/>Animals: ${d.animals.join(', ')}`);
     d3.select(event.currentTarget).attr('stroke','#000').attr('stroke-width',1.5);
   }
-  function moveTooltip(event){ tooltip.style('left',(event.pageX+12)+'px').style('top',(event.pageY+12)+'px'); }
-  function hideTooltip(event,d){ tooltip.style('display','none'); d3.select(event.currentTarget).attr('stroke','#fff').attr('stroke-width',1.2); }
+  function moveTooltip(event){ tooltip.style.left=(event.pageX+12)+'px'; tooltip.style.top=(event.pageY+12)+'px'; }
+  function hideTooltip(event,d){ tooltip.style.display='none'; d3.select(event.currentTarget).attr('stroke','#fff').attr('stroke-width',1.2); }
 
-  link.on('mouseover', event => tooltip.style('display','block')).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
+  link.on('mouseover', showTooltipLink).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
   node.select('circle').on('mouseover', showTooltipNode).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
 
   simulation.on('tick', ()=>{
     link.attr('d', d => {
-      // offset start/end by node radius
+      // vector from source to target
       const dx = d.target.x - d.source.x;
       const dy = d.target.y - d.source.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
       const rSource = rScale(nodes.find(n=>n.id===d.source.id).degree);
       const rTarget = rScale(nodes.find(n=>n.id===d.target.id).degree);
+
       const ratioSource = rSource / dist;
       const ratioTarget = rTarget / dist;
+
       const sx = d.source.x + dx*ratioSource;
       const sy = d.source.y + dy*ratioSource;
       const tx = d.target.x - dx*ratioTarget;
       const ty = d.target.y - dy*ratioTarget;
-      const dr = dist*0.8; // curve radius
+
+      const dr = dist*0.6; // curve radius
       return `M${sx},${sy}A${dr},${dr} 0 0,1 ${tx},${ty}`;
     });
+
     node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
 
+  // --- Animal filter ---
   animalDropdown.on('change', function(){
     const selectedAnimal = this.value;
     const activeLinks = selectedAnimal 
@@ -173,7 +178,7 @@ body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
     link
       .attr('stroke', d => activeLinks.includes(d) ? '#999' : '#ccc')
       .attr('stroke-opacity', d => activeLinks.includes(d) ? 0.8 : 0.1)
-      .attr('marker-end', 'url(#arrowhead)'); // always keep marker
+      .attr('marker-end', 'url(#arrowhead)');
 
     node.select('circle').attr('fill', d => connectedNodeIds.has(d.id) ? '#3b82f6' : '#aaa');
   });
