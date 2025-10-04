@@ -478,16 +478,11 @@
         const textElement = d3.select(this);
         
         // Filter and map the relevant animal details for this *visual* link
-        // For reciprocal links, we only need the reciprocal entry
-        // For one-way links, we only need the entry that matches the direction (Source -> Target)
         let relevantAnimals;
         if (d.isReciprocal) {
-            // Find unique reciprocal animals for this city pair
             const reciprocalRoutes = d.displayAnimals.filter(a => a.isReciprocal);
-            // Deduplicate by name
             relevantAnimals = [...new Map(reciprocalRoutes.map(item => [item['name'], item])).values()];
         } else {
-            // Find the one-way animal route that matches the displayed link's direction (Source -> Target)
             relevantAnimals = d.displayAnimals.filter(a => 
                 !a.isReciprocal && 
                 a.source === d.source.id && 
@@ -504,9 +499,6 @@
                 symbol = '<-->';
                 className = 'reciprocal';
             } else {
-                // For a one-way path, the symbol is always '-->' (Source -> Target)
-                // because we filtered the relevantAnimals to only include the routes
-                // that match the visual link direction (d.source -> d.target).
                 symbol = '-->';
                 className = 'one-way';
             }
@@ -515,7 +507,6 @@
                 .attr('class', className)
                 .attr('x', 0) // Align all tspan elements horizontally at x=0
                 // dy controls the vertical spacing from the previous tspan. 
-                // Adjusting the first one to be centered, then subsequent ones for stacking.
                 .attr('dy', (i === 0 ? '-0.5em' : '1em')) 
                 .text(`${a.name} ${symbol}`);
         });
@@ -725,51 +716,54 @@
         // PathIndex 0 = Reciprocal (straight line)
         if (d.pathIndex === 0) {
             d.pathString = `M${sx},${sy}L${tx},${ty}`;
-            // Store the start/end points for label positioning
             d.midpoint = [(sx + tx) / 2, (sy + ty) / 2];
-            d.angle = Math.atan2(dy, dx) * 180 / Math.PI;
-
+            d.angle = Math.atan2(dy, dx); // Angle in radians
         } else {
             // PathIndex 1 & 2 = One-way (parallel curves in one direction)
             
-            // 1. Determine the magnitude offset for separation:
             const offsetMagnitude = (d.pathIndex === 1) ? 0.2 : 0.8; 
             const offset = offsetMagnitude; 
             const dr_factor = adjustedDist * curvature * offset;
 
-            // 2. The sweep flag (arcFlag) controls the direction. We keep it constant (0) for one direction.
             const arcFlag = 0; 
             const dr = adjustedDist + dr_factor; 
             
             if (dr <= adjustedDist) { 
                  d.pathString = `M${sx},${sy}L${tx},${ty}`;
-                 d.midpoint = [(sx + tx) / 2, (sy + ty) / 2];
-                 d.angle = Math.atan2(dy, dx) * 180 / Math.PI;
             } else {
                  d.pathString = `M${sx},${sy}A${dr},${dr} 0 0,${arcFlag} ${tx},${ty}`;
-                 
-                 // Fallback: For arc, we use the straight-line midpoint 
-                 d.midpoint = [(sx + tx) / 2, (sy + ty) / 2];
-                 d.angle = Math.atan2(dy, dx) * 180 / Math.PI; 
             }
+            
+            // For curved paths, we still use the straight-line midpoint and angle for positioning the label.
+            d.midpoint = [(sx + tx) / 2, (sy + ty) / 2];
+            d.angle = Math.atan2(dy, dx); // Angle in radians
         }
 
         return d.pathString;
     });
 
-    // *** MODIFIED: Position the link labels using simple midpoint + fixed vertical offset ***
+    // *** MODIFIED: Position the link labels with perpendicular offset and no rotation ***
     linkLabel.attr('transform', function(d) {
         if (!d.midpoint) return 'translate(0,0)'; 
         
         const [mx, my] = d.midpoint;
+        const angle = d.angle; // Angle in radians
         
-        // Use a fixed vertical offset (negative Y) to position the label above the path.
-        // We use -15px to account for the multi-line nature and ensure clearance.
-        const fixedVerticalOffset = -15; 
+        // Base screen offset (upwards) to clear the link path
+        const fixedVerticalScreenOffset = -15; 
+        
+        // Perpendicular offset magnitude to separate parallel labels
+        // Index 0: Center, Index 1: Left/Down, Index 2: Right/Up
+        const perpendicularOffsetMagnitude = (d.pathIndex - 1) * 15; // -15, 0, or 15
+        
+        // Calculate the perpendicular translation vector (normal to the path)
+        // dx_perp = magnitude * cos(angle + 90 deg) = magnitude * -sin(angle)
+        // dy_perp = magnitude * sin(angle + 90 deg) = magnitude * cos(angle)
+        const offsetX_perp = perpendicularOffsetMagnitude * (-Math.sin(angle));
+        const offsetY_perp = perpendicularOffsetMagnitude * (Math.cos(angle));
 
-        // Apply transformation: move to midpoint, and shift upward relative to the screen.
-        // Rotation is removed to keep the text horizontal.
-        return `translate(${mx}, ${my + fixedVerticalOffset})`;
+        // The final label position is the midpoint + perpendicular offset + fixed vertical offset (for text clearance)
+        return `translate(${mx + offsetX_perp}, ${my + offsetY_perp + fixedVerticalScreenOffset})`;
     })
     .style('opacity', d => link.filter(l => l === d).style('opacity')); // Match link visibility
   });
